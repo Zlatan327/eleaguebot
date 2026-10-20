@@ -5,17 +5,31 @@ const FixtureRepo = require('./database/repositories/fixtureRepo');
 const SettingsRepo = require('./database/repositories/settingsRepo');
 
 let latestQrDataUrl = null;
+let isBotAuthenticated = false;
 let isBotReady = false;
 let currentStatus = 'Initializing WhatsApp Web client in Chromium...';
 
 function setLatestQr(qrString) {
+  if (!qrString) {
+    latestQrDataUrl = null;
+    return;
+  }
   latestQrDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=10&data=${encodeURIComponent(qrString)}`;
   currentStatus = 'QR Code generated! Ready to scan with WhatsApp.';
+}
+
+function setBotAuthenticated(authenticated = true) {
+  isBotAuthenticated = authenticated;
+  if (authenticated) {
+    latestQrDataUrl = null;
+    currentStatus = 'WhatsApp connected & authenticated! Synchronizing league data...';
+  }
 }
 
 function setBotReady(ready = true) {
   isBotReady = ready;
   if (ready) {
+    isBotAuthenticated = true;
     latestQrDataUrl = null;
     currentStatus = 'Bot is online and actively managing league group chats.';
   }
@@ -41,6 +55,7 @@ function startWebServer(port = process.env.PORT || 3000) {
       res.end(JSON.stringify({
         status: 'ok',
         botReady: isBotReady,
+        botAuthenticated: isBotAuthenticated,
         uptimeSeconds: Math.round(process.uptime()),
         timestamp: new Date().toISOString(),
       }));
@@ -173,9 +188,9 @@ function startWebServer(port = process.env.PORT || 3000) {
         <div class="empty-state">No scheduled fixtures yet. Run <code>!generatefixtures</code> in WhatsApp.</div>
       `;
 
-      // QR Code Card
+      // QR Code / Connection Card
       let qrCardHtml = '';
-      if (!isBotReady && latestQrDataUrl) {
+      if (!isBotReady && !isBotAuthenticated && latestQrDataUrl) {
         qrCardHtml = `
           <div class="glass-card qr-card">
             <div class="qr-header">
@@ -189,7 +204,24 @@ function startWebServer(port = process.env.PORT || 3000) {
               <img src="${latestQrDataUrl}" alt="WhatsApp Web QR Code" width="280" height="280" />
             </div>
             <div class="qr-footer">
-              <span class="pulse-dot"></span> Auto-refreshes when updated
+              <span class="pulse-dot pulse-amber"></span> Scan with WhatsApp &bull; Auto-syncing
+            </div>
+          </div>
+        `;
+      } else if (!isBotReady && isBotAuthenticated) {
+        qrCardHtml = `
+          <div class="glass-card status-card connected-card">
+            <div class="status-icon-box">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 6L9 17l-5-5"/>
+              </svg>
+            </div>
+            <div class="status-content">
+              <h3>WhatsApp Linked Successfully</h3>
+              <p class="status-msg">${currentStatus}</p>
+              <div class="sync-hint">
+                <span class="pulse-dot pulse-blue"></span> Session linked! You can now send <code>!help</code> or <code>!table</code> in your WhatsApp group.
+              </div>
             </div>
           </div>
         `;
@@ -197,7 +229,7 @@ function startWebServer(port = process.env.PORT || 3000) {
         qrCardHtml = `
           <div class="glass-card status-card">
             <div class="loader-spinner"></div>
-            <div>
+            <div class="status-content">
               <h3>Connecting to WhatsApp Web...</h3>
               <p class="status-msg">${currentStatus}</p>
             </div>
@@ -206,7 +238,7 @@ function startWebServer(port = process.env.PORT || 3000) {
       }
 
       // Auto-refresh rate
-      const refreshSec = !isBotReady ? 6 : 30;
+      const refreshSec = !isBotReady ? (isBotAuthenticated ? 5 : 6) : 30;
 
       const html = `<!DOCTYPE html>
 <html lang="en">
@@ -354,6 +386,18 @@ function startWebServer(port = process.env.PORT || 3000) {
       color: #FBBF24;
     }
 
+    .status-badge.connected {
+      background: rgba(56, 189, 248, 0.12);
+      border-color: rgba(56, 189, 248, 0.3);
+      color: #38BDF8;
+    }
+
+    .status-badge.qr-ready {
+      background: rgba(245, 158, 11, 0.12);
+      border-color: rgba(245, 158, 11, 0.3);
+      color: #F59E0B;
+    }
+
     .pulse-dot {
       width: 8px;
       height: 8px;
@@ -361,6 +405,16 @@ function startWebServer(port = process.env.PORT || 3000) {
       background: currentColor;
       box-shadow: 0 0 8px currentColor;
       animation: pulse 2s infinite;
+    }
+
+    .pulse-dot.pulse-blue {
+      background: #38BDF8;
+      box-shadow: 0 0 8px #38BDF8;
+    }
+
+    .pulse-dot.pulse-amber {
+      background: #F59E0B;
+      box-shadow: 0 0 8px #F59E0B;
     }
 
     @keyframes pulse {
@@ -605,6 +659,49 @@ function startWebServer(port = process.env.PORT || 3000) {
       background: rgba(245, 158, 11, 0.05);
     }
 
+    .status-card.connected-card {
+      border-color: rgba(16, 185, 129, 0.25);
+      background: rgba(16, 185, 129, 0.06);
+    }
+
+    .status-card.connected-card h3 {
+      color: #34D399;
+    }
+
+    .status-icon-box {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .status-content {
+      flex: 1;
+    }
+
+    .sync-hint {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .sync-hint code {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 1px 6px;
+      border-radius: 4px;
+      color: var(--accent-blue);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
     .status-card h3 { font-size: 15px; font-weight: 700; color: #FBBF24; }
     .status-msg { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
 
@@ -681,7 +778,11 @@ function startWebServer(port = process.env.PORT || 3000) {
         <span class="pill">Week ${currentWeek}</span>
         ${isBotReady 
           ? `<span class="status-badge"><span class="pulse-dot"></span> Online</span>`
-          : `<span class="status-badge offline"><span class="pulse-dot"></span> Syncing</span>`
+          : isBotAuthenticated
+            ? `<span class="status-badge connected"><span class="pulse-dot pulse-blue"></span> Connected &bull; Syncing</span>`
+            : latestQrDataUrl
+              ? `<span class="status-badge qr-ready"><span class="pulse-dot pulse-amber"></span> Scan QR Code</span>`
+              : `<span class="status-badge offline"><span class="pulse-dot"></span> Initializing</span>`
         }
       </div>
     </header>
@@ -803,6 +904,7 @@ function startWebServer(port = process.env.PORT || 3000) {
 module.exports = {
   startWebServer,
   setLatestQr,
+  setBotAuthenticated,
   setBotReady,
   setBotStatus,
 };

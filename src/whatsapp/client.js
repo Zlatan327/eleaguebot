@@ -168,7 +168,8 @@ class WhatsAppClient {
 
       const isCmd = body.startsWith('!') || body.startsWith('/');
       const isScore = /^\d+\s*[-:]\s*\d+$/.test(body);
-      if (!isCmd && !hasMedia && !isScore) {
+      const isQuickScore = Boolean(Parser.parseQuickScore(body));
+      if (!isCmd && !hasMedia && !isScore && !isQuickScore) {
         return;
       }
 
@@ -184,7 +185,41 @@ class WhatsAppClient {
         senderId = this.client.info?.wid?._serialized || msg.from;
       }
 
-      console.log(`📩 [CMD] Received: "${body}" from: ${senderId} in: ${destinationChatId}`);
+      // If senderId is a WhatsApp Privacy LID (@lid), try resolving actual phone JID via getContact()
+      if (senderId && senderId.endsWith('@lid')) {
+        try {
+          const contact = await msg.getContact();
+          if (contact && contact.id && contact.id._serialized && !contact.id._serialized.endsWith('@lid')) {
+            senderId = contact.id._serialized;
+          } else if (contact && contact.number) {
+            senderId = `${contact.number}@c.us`;
+          }
+        } catch (e) {
+          // ignore contact fetch error
+        }
+      }
+
+      // Check if sender is a WhatsApp group admin
+      let isGroupAdmin = Boolean(msg.fromMe);
+      if (isGroup && !isGroupAdmin) {
+        try {
+          const chat = await msg.getChat();
+          if (chat && chat.isGroup && Array.isArray(chat.participants)) {
+            const rawAuthor = msg.author || msg.from;
+            const participant = chat.participants.find(p => {
+              const pid = p.id?._serialized || p.id;
+              return pid === rawAuthor || pid === senderId;
+            });
+            if (participant && (participant.isAdmin || participant.isSuperAdmin)) {
+              isGroupAdmin = true;
+            }
+          }
+        } catch (e) {
+          // ignore chat fetch error
+        }
+      }
+
+      console.log(`📩 [CMD] Received: "${body}" from: ${senderId} (isGroupAdmin: ${isGroupAdmin}) in: ${destinationChatId}`);
 
       if (!this.isReady) {
         this.isReady = true;
@@ -243,6 +278,7 @@ class WhatsAppClient {
         groupId,
         isGroup,
         quotedBody,
+        isGroupAdmin,
       });
 
       if (response) {

@@ -27,7 +27,7 @@ const CommandHandler = {
   /**
    * Main command execution router
    */
-  async handle({ body, senderId, groupId, isGroup, quotedBody = null }) {
+  async handle({ body, senderId, groupId, isGroup, quotedBody = null, isGroupAdmin = false }) {
     const parsed = Parser.parseMessage(body, quotedBody);
     if (!parsed) return null;
 
@@ -47,7 +47,7 @@ const CommandHandler = {
       return null;
     }
 
-    const isAdmin = AdminRepo.isAdmin(senderId);
+    const isAdmin = AdminRepo.isAdmin(senderId) || Boolean(isGroupAdmin);
     const currentWeek = SettingsRepo.getInt('current_week', 1, leagueId);
 
     try {
@@ -98,7 +98,9 @@ const CommandHandler = {
           return MessageFormatter.formatMyFixtures(player.name, fixtures);
         }
 
-        case 'result': {
+        case 'result':
+        case 'score':
+        case 'res': {
           let fixtureId = null;
           let homeName = null;
           let awayName = null;

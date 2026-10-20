@@ -51,10 +51,30 @@ function extractFixtureId(text) {
   return null;
 }
 
+/**
+ * Detects quick score submissions like "#1 3-1", "1 3-1", "!1 3-1", "score 1 3-1", "m1 3-1"
+ */
+function parseQuickScore(text) {
+  if (!text || typeof text !== 'string') return null;
+  const trimmed = text.trim();
+  const match = trimmed.match(/^(?:[!#]|(?:[!#/]?(?:score|result|match|m)\s*))?#?(\d+)[:\s]+(\d+)\s*[-:]\s*(\d+)$/i);
+  if (match) {
+    const fixtureId = parseInt(match[1], 10);
+    const home = parseInt(match[2], 10);
+    const away = parseInt(match[3], 10);
+    return {
+      fixtureId,
+      score: { home, away },
+    };
+  }
+  return null;
+}
+
 const Parser = {
   tokenize,
   parseScore,
   extractFixtureId,
+  parseQuickScore,
 
   /**
    * Parses incoming message and returns structured command data
@@ -63,6 +83,18 @@ const Parser = {
     if (!body || typeof body !== 'string') return null;
 
     const trimmed = body.trim();
+
+    // 1. Check if user sent a quick score format by Match ID (e.g. "#1 3-1", "1 3-1", "!1 3-1", "score 1 3-1")
+    const quickScore = parseQuickScore(trimmed);
+    if (quickScore) {
+      return {
+        command: 'result',
+        args: [String(quickScore.fixtureId), `${quickScore.score.home}-${quickScore.score.away}`],
+        isReply: false,
+        fixtureId: quickScore.fixtureId,
+        score: quickScore.score,
+      };
+    }
 
     // Check if user replied with score directly (e.g. "3-1" or "3:1") to a quoted fixture
     const directScore = parseScore(trimmed);

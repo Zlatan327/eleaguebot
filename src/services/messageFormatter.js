@@ -94,7 +94,8 @@ const MessageFormatter = {
     }
 
     out += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-    out += '📝 *Submit Result:* `!result <id> <score>` (e.g. `!result 1 3-1`)';
+    out += '⚡ *Instant Score Submission:*\n';
+    out += '👉 Send `#<ID> <Score>` (e.g. `#1 3-1` or `1 3-1`)';
     return out;
   },
 
@@ -179,12 +180,13 @@ const MessageFormatter = {
                `   ⚽ *eLeagueBot • Official Guide*\n` +
                `╚══════════════════════════════╝\n\n` +
                `🎮 *MATCHDAY COMMANDS*\n` +
+               `▸ \`#<id> <score>\` ➔ Quick submit (e.g. \`#1 3-1\` or \`1 3-1\`)\n` +
+               `▸ \`!score <id> <score>\` ➔ Submit score by ID (e.g. \`!score 1 3-1\`)\n` +
+               `▸ \`!result <P1> 3-1 <P2>\` ➔ Submit by name (\`!result Messi 3-1 Ronaldo\`)\n` +
                `▸ \`!table\` ➔ View current league standings\n` +
                `▸ \`!fixtures\` ➔ View all upcoming & completed matches\n` +
                `▸ \`!fixtures <week>\` ➔ View matches for a specific week (e.g. \`!fixtures 2\`)\n` +
                `▸ \`!myfixtures\` ➔ View your personal upcoming schedule & deadlines\n` +
-               `▸ \`!result <id> <score>\` ➔ Submit score (e.g. \`!result 1 3-1\`)\n` +
-               `▸ \`!result <P1> <score> <P2>\` ➔ Submit by name (\`!result Messi 3-1 Ronaldo\`)\n` +
                `▸ \`!claimplayer <Name>\` ➔ Link your WhatsApp to your player name\n` +
                `▸ \`!help\` or \`!hlp\` ➔ Display this command guide\n`;
 

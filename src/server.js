@@ -143,6 +143,19 @@ function startWebServer(port = process.env.PORT || 3000) {
       return;
     }
 
+    // 2c. Silent Live Status Endpoint (replaces annoying full-page browser reloads)
+    if (url.pathname === '/api/status') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        isBotReady,
+        isBotAuthenticated,
+        latestQrDataUrl,
+        latestPairingCode,
+        currentStatus,
+      }));
+      return;
+    }
+
     // 3. Figma-styled Frontend Dashboard
     if (url.pathname === '/') {
       let standings = [];
@@ -253,7 +266,7 @@ function startWebServer(port = process.env.PORT || 3000) {
       }
 
       const pairingCardHtml = (!isBotReady && !isBotAuthenticated) ? `
-        <div class="glass-card pairing-card">
+        <div class="glass-card pairing-card" id="pairingContainer">
           <div class="pairing-header">
             <div class="badge-icon">🔢</div>
             <div>
@@ -261,6 +274,8 @@ function startWebServer(port = process.env.PORT || 3000) {
               <p>Camera overheated or unavailable? Generate an 8-character pairing code to link directly:</p>
             </div>
           </div>
+
+          <div id="pairingError" class="pairing-error-box" style="display:none;"></div>
 
           ${latestPairingCode ? `
             <div class="code-box">
@@ -274,18 +289,18 @@ function startWebServer(port = process.env.PORT || 3000) {
                   <li>Enter the code: <strong>${latestPairingCode}</strong></li>
                 </ol>
               </div>
-              <form action="/api/request-code" method="POST" style="margin-top:10px;">
+              <form action="/api/request-code" method="POST" id="pairingRefreshForm" style="margin-top:10px;">
                 <input type="hidden" name="phone" value="${cleanPhone}">
                 <button type="submit" class="btn-refresh-code">🔄 Request New Code</button>
               </form>
             </div>
           ` : `
-            <form action="/api/request-code" method="POST" class="pairing-form">
+            <form action="/api/request-code" method="POST" id="pairingForm" class="pairing-form">
               <div class="input-group">
                 <label for="phone">Your WhatsApp Number (international format):</label>
                 <div class="input-row">
                   <input type="text" id="phone" name="phone" value="${cleanPhone}" placeholder="e.g. 2348154396451" required class="phone-input" />
-                  <button type="submit" class="btn-pair">Get 8-Digit Code</button>
+                  <button type="submit" id="btnPair" class="btn-pair">Get 8-Digit Code</button>
                 </div>
               </div>
             </form>
@@ -342,16 +357,12 @@ function startWebServer(port = process.env.PORT || 3000) {
         `;
       }
 
-      // Auto-refresh rate
-      const refreshSec = !isBotReady ? (isBotAuthenticated ? 5 : 6) : 30;
-
       const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${leagueName} &bull; Dashboard</title>
-  <meta http-equiv="refresh" content="${refreshSec}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
@@ -832,6 +843,16 @@ function startWebServer(port = process.env.PORT || 3000) {
       margin-top: 2px;
     }
 
+    .pairing-error-box {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #F87171;
+      font-size: 13px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+
     .code-box {
       background: rgba(0, 0, 0, 0.4);
       border: 1px solid rgba(56, 189, 248, 0.35);
@@ -1132,6 +1153,93 @@ function startWebServer(port = process.env.PORT || 3000) {
     </footer>
 
   </div>
+
+  <script>
+    (function() {
+      // 1. Smooth AJAX WhatsApp Pairing Code Generator (NO whole-page refreshes)
+      const pairingForm = document.getElementById('pairingForm');
+      if (pairingForm) {
+        pairingForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const phoneInput = document.getElementById('phone');
+          const submitBtn = document.getElementById('btnPair');
+          const pairingBox = document.getElementById('pairingContainer');
+          const errorBox = document.getElementById('pairingError');
+          
+          const phone = phoneInput ? phoneInput.value.trim() : '';
+          if (!phone) return;
+
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Generating Code...';
+          if (errorBox) errorBox.style.display = 'none';
+
+          try {
+            const res = await fetch('/api/request-code?phone=' + encodeURIComponent(phone));
+            const data = await res.json();
+            if (data.success && data.code) {
+              pairingBox.innerHTML = \`
+                <div class="pairing-header">
+                  <div class="badge-icon">🔢</div>
+                  <div>
+                    <h3>Link with Phone Number (No Camera Needed)</h3>
+                    <p>Enter the code below in WhatsApp on your phone:</p>
+                  </div>
+                </div>
+                <div class="code-box">
+                  <span class="code-eyebrow">YOUR WHATSAPP PAIRING CODE</span>
+                  <div class="code-display">\${data.code}</div>
+                  <div class="code-guide">
+                    <ol>
+                      <li>Open <strong>WhatsApp</strong> on your phone</li>
+                      <li>Tap <strong>⋮ (Menu)</strong> &gt; <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong></li>
+                      <li>Tap <strong>Link with phone number instead</strong> at the bottom of the scanner screen</li>
+                      <li>Enter the code above: <strong>\${data.code}</strong></li>
+                    </ol>
+                  </div>
+                  <button type="button" onclick="location.reload()" class="btn-refresh-code">🔄 Request New Code</button>
+                </div>
+              \`;
+            } else {
+              throw new Error(data.error || 'Failed to generate code');
+            }
+          } catch (err) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Get 8-Digit Code';
+            if (errorBox) {
+              errorBox.textContent = '⚠️ ' + err.message;
+              errorBox.style.display = 'block';
+            } else {
+              alert('⚠️ ' + err.message);
+            }
+          }
+        });
+      }
+
+      // 2. Silent Live Status Poller (Runs quietly in background without jarring page flicker)
+      const initialReady = ${isBotReady};
+      const initialAuth = ${isBotAuthenticated};
+
+      setInterval(async () => {
+        try {
+          const res = await fetch('/api/status');
+          const data = await res.json();
+
+          // Update status message dynamically if present
+          const statusMsgEl = document.querySelector('.status-msg');
+          if (statusMsgEl && data.currentStatus) {
+            statusMsgEl.textContent = data.currentStatus;
+          }
+
+          // If session state changed (e.g. user linked device or authenticated), reload once to update dashboard
+          if (data.isBotReady !== initialReady || data.isBotAuthenticated !== initialAuth) {
+            window.location.reload();
+          }
+        } catch (e) {
+          // ignore background network blip
+        }
+      }, 4000);
+    })();
+  </script>
 </body>
 </html>`;
 

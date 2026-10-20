@@ -156,6 +156,21 @@ function startWebServer(port = process.env.PORT || 3000) {
       return;
     }
 
+    // 2d. Clean Session Reset Endpoint (wipes stale/conflicting auth session)
+    if (url.pathname === '/api/reset-session') {
+      try {
+        if (whatsAppClientInstance) {
+          whatsAppClientInstance.resetSession();
+        }
+        res.writeHead(302, { Location: '/?reset=1' });
+        res.end();
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
     // 3. Figma-styled Frontend Dashboard
     if (url.pathname === '/') {
       let standings = [];
@@ -305,6 +320,9 @@ function startWebServer(port = process.env.PORT || 3000) {
               </div>
             </form>
           `}
+          <div style="margin-top: 16px; text-align: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px;">
+            <a href="/api/reset-session" onclick="return confirm('Clear any stale session files and restart WhatsApp fresh?')" class="btn-clean-reset">🔄 Clear Stale Session & Restart</a>
+          </div>
         </div>
       ` : '';
 
@@ -1022,6 +1040,24 @@ function startWebServer(port = process.env.PORT || 3000) {
     .cmd-item span {
       font-size: 12px;
       color: var(--text-muted);
+    }
+
+    .btn-clean-reset {
+      display: inline-block;
+      font-size: 11px;
+      color: var(--text-dim);
+      text-decoration: none;
+      padding: 5px 12px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: all 0.2s;
+    }
+
+    .btn-clean-reset:hover {
+      color: #F8FAFC;
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
     }
 
     footer {

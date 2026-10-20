@@ -281,6 +281,28 @@ class WhatsAppClient {
     }
   }
 
+  async resetSession() {
+    try {
+      this.isReady = false;
+      this.isAuthenticated = false;
+      setBotReady(false);
+      setBotAuthenticated(false);
+      setLatestQr(null);
+      setLatestPairingCode(null);
+      setBotStatus('Clearing session data and restarting client...');
+      await this.client.destroy();
+      const fs = require('fs');
+      if (fs.existsSync(config.sessionDir)) {
+        fs.rmSync(config.sessionDir, { recursive: true, force: true });
+        console.log('🗑️ Deleted old session directory:', config.sessionDir);
+      }
+      setTimeout(() => this.start(), 2000);
+    } catch (err) {
+      console.error('Error resetting session:', err);
+      setTimeout(() => this.start(), 3000);
+    }
+  }
+
   async stop() {
     console.log('Shutting down WhatsApp Web client...');
     await this.client.destroy();

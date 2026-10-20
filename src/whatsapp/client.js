@@ -2,6 +2,7 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const config = require('../config');
 const CommandHandler = require('../handlers/commandHandler');
+const Parser = require('../handlers/parser');
 const VisionService = require('../services/visionService');
 const LeagueService = require('../services/leagueService');
 const MessageFormatter = require('../services/messageFormatter');

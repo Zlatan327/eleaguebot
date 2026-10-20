@@ -21,6 +21,11 @@ const SettingsRepo = {
     `).run(key, String(value));
   },
 
+  delete(key) {
+    const db = getDatabase();
+    return db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+  },
+
   getAll() {
     const db = getDatabase();
     const rows = db.prepare('SELECT key, value FROM settings').all();

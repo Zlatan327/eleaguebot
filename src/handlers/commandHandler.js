@@ -320,6 +320,31 @@ const CommandHandler = {
           return `⚠️ Player *${name}* deactivated from the league.`;
         }
 
+        case 'setleaguename': {
+          if (!isAdmin) return '❌ Permission denied: Admin only command.';
+          if (args.length === 0) return 'Usage: `!setleaguename <League Name>`';
+          const newName = args.join(' ').trim();
+          SettingsRepo.set('league_name', newName);
+          return `🏆 League name updated to *${newName}*! View with \`!table\` or check the web dashboard.`;
+        }
+
+        case 'unbindgroup':
+        case 'resetgroup': {
+          if (!isAdmin) return '❌ Permission denied: Admin only command.';
+          SettingsRepo.delete('league_group_id');
+          return `🔓 Bot successfully unlinked from this group. You can now move the bot to another WhatsApp group and run \`!setgroup\`.`;
+        }
+
+        case 'groupinfo': {
+          const boundId = SettingsRepo.get('league_group_id');
+          const leagueName = SettingsRepo.get('league_name', 'eFootball League');
+          return `ℹ️ *League Group Info:*\n\n` +
+                 `• League Name: *${leagueName}*\n` +
+                 `• Current Chat ID: \`${groupId || senderId}\`\n` +
+                 `• Bound Group ID: ${boundId ? `\`${boundId}\`` : '_None (Free mode)_'}\n` +
+                 `• Status: ${boundId === groupId ? '✅ Locked to this group' : boundId ? '⚠️ Locked to another group' : '🔓 Unbound'}`;
+        }
+
         // ================= ONGOING LEAGUE ONBOARDING COMMANDS =================
         case 'setbaseline': {
           if (!isAdmin) return '❌ Permission denied: Admin only command.';

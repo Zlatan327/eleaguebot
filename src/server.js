@@ -75,11 +75,13 @@ function startWebServer(port = process.env.PORT || 3000) {
       let standings = [];
       let fixtures = [];
       let currentWeek = 1;
+      let leagueName = 'eFootball League';
 
       try {
         standings = LeagueService.getStandings();
         fixtures = FixtureRepo.getAll({ limit: 12 });
         currentWeek = SettingsRepo.getInt('current_week', 1);
+        leagueName = SettingsRepo.get('league_name', 'eFootball League');
       } catch (err) {
         // Fallback for fresh boot
       }
@@ -196,7 +198,7 @@ function startWebServer(port = process.env.PORT || 3000) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>eLeagueBot &bull; League Dashboard</title>
+  <title>${leagueName} &bull; Dashboard</title>
   <meta http-equiv="refresh" content="${refreshSec}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -593,7 +595,7 @@ function startWebServer(port = process.env.PORT || 3000) {
       <div class="brand">
         <div class="brand-icon">⚽</div>
         <div>
-          <h1>eLeagueBot</h1>
+          <h1>${leagueName}</h1>
         </div>
       </div>
       <div class="header-pills">
@@ -613,7 +615,7 @@ function startWebServer(port = process.env.PORT || 3000) {
       <div class="card-header">
         <h2 class="card-title">
           <span>🏆</span>
-          <span>League Standings</span>
+          <span>${leagueName} Standings</span>
         </h2>
         <span class="pill">Week ${currentWeek}</span>
       </div>

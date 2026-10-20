@@ -1,4 +1,5 @@
 const DeadlineService = require('./deadlineService');
+const SettingsRepo = require('../database/repositories/settingsRepo');
 
 /**
  * Helper to pad strings for monospace WhatsApp display
@@ -15,11 +16,12 @@ const MessageFormatter = {
    * Formats the league table in a clean monospace block
    */
   formatTable(standings, currentWeek) {
+    const leagueName = SettingsRepo.get('league_name', 'EFOOTBALL LEAGUE');
     if (!standings || standings.length === 0) {
-      return '📋 *League Table*\n\n_No players registered in the league yet._\nUse `!addplayer <name>` to register players.';
+      return `📋 *${leagueName.toUpperCase()} TABLE*\n\n_No players registered in the league yet._\nUse \`!addplayer <name>\` to register players.`;
     }
 
-    let header = `🏆 *EFOOTBALL LEAGUE STANDINGS* (Week ${currentWeek})\n`;
+    let header = `🏆 *${leagueName.toUpperCase()} STANDINGS* (Week ${currentWeek})\n`;
     header += '```\n';
     header += '#  Player       P  W  D  L  GD PTS\n';
     header += '──────────────────────────────────\n';
@@ -46,12 +48,14 @@ const MessageFormatter = {
   /**
    * Formats a list of fixtures
    */
-  formatFixtures(fixtures, title = 'LEAGUE FIXTURES') {
+  formatFixtures(fixtures, title = null) {
+    const leagueName = SettingsRepo.get('league_name', 'LEAGUE');
+    const displayTitle = title || `${leagueName.toUpperCase()} FIXTURES`;
     if (!fixtures || fixtures.length === 0) {
-      return `📅 *${title}*\n\n_No fixtures found._\nUse \`!generatefixtures\` to generate the league schedule.`;
+      return `📅 *${displayTitle}*\n\n_No fixtures found._\nUse \`!generatefixtures\` to generate the league schedule.`;
     }
 
-    let out = `📅 *${title}*\n`;
+    let out = `📅 *${displayTitle}*\n`;
     out += '────────────────────────────\n';
 
     let currentWk = null;
@@ -161,7 +165,10 @@ const MessageFormatter = {
         `• \`!editresult <id> <score>\` - Correct an entered score\n` +
         `• \`!revertresult <id>\` - Revert a played match back to pending\n` +
         `• \`!setweek <num>\` - Advance active league week\n` +
+        `• \`!setleaguename <name>\` - Customize league display name\n` +
         `• \`!setgroup\` - Lock bot to current WhatsApp group\n` +
+        `• \`!unbindgroup\` - Unlock bot to switch to another group\n` +
+        `• \`!groupinfo\` - View current group binding status\n` +
         `• \`!linkplayer <name> <phone>\` - Link WhatsApp number to player\n` +
         `• \`!addadmin <phone>\` - Grant admin permissions\n` +
         `• \`!removeplayer <name>\` - Deactivate a player\n\n` +

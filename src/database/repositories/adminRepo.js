@@ -4,7 +4,7 @@ const SettingsRepo = require('./settingsRepo');
 function normalizeId(id) {
   if (!id) return '';
   let digits = id.replace(/[^0-9]/g, '');
-  // Normalize 11-digit national Nigerian numbers (e.g. 08154396451 -> 2348154396451)
+  // Normalize 11-digit national Nigerian numbers (e.g. 08012345678 -> 2348012345678)
   if (digits.startsWith('0') && digits.length === 11) {
     digits = '234' + digits.slice(1);
   }

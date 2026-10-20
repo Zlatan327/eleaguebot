@@ -4,18 +4,19 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL
 );
 
--- Admin users (by WhatsApp JID or phone number)
+-- Admin users (SuperAdmins by WhatsApp JID or phone number)
 CREATE TABLE IF NOT EXISTS admins (
     whatsapp_id TEXT PRIMARY KEY,
     name TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Players Table with baseline support for ongoing league entry
+-- Players Table (Multi-League scoped by league_id / groupId)
 CREATE TABLE IF NOT EXISTS players (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL COLLATE NOCASE,
-    whatsapp_id TEXT UNIQUE,
+    league_id TEXT DEFAULT 'default',
+    name TEXT NOT NULL COLLATE NOCASE,
+    whatsapp_id TEXT,
     joined_week INTEGER DEFAULT 1,
     active INTEGER DEFAULT 1,
     baseline_played INTEGER DEFAULT 0,
@@ -28,9 +29,10 @@ CREATE TABLE IF NOT EXISTS players (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Fixtures Table
+-- Fixtures Table (Multi-League scoped by league_id / groupId)
 CREATE TABLE IF NOT EXISTS fixtures (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    league_id TEXT DEFAULT 'default',
     week INTEGER NOT NULL,
     home_player_id INTEGER NOT NULL,
     away_player_id INTEGER NOT NULL,
@@ -45,6 +47,7 @@ CREATE TABLE IF NOT EXISTS fixtures (
     FOREIGN KEY(away_player_id) REFERENCES players(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_fixtures_week ON fixtures(week);
-CREATE INDEX IF NOT EXISTS idx_fixtures_status ON fixtures(status);
+CREATE INDEX IF NOT EXISTS idx_players_league ON players(league_id, name);
+CREATE INDEX IF NOT EXISTS idx_fixtures_league ON fixtures(league_id, week);
+CREATE INDEX IF NOT EXISTS idx_fixtures_status ON fixtures(league_id, status);
 CREATE INDEX IF NOT EXISTS idx_fixtures_players ON fixtures(home_player_id, away_player_id);

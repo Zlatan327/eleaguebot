@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "cli": "node src/index.js --cli",
-    "test": "node tests/league.test.js && node tests/latePlayer.test.js && node tests/existingLeague.test.js && node tests/securityAudit.test.js"
+    "test": "node tests/league.test.js && node tests/latePlayer.test.js && node tests/existingLeague.test.js && node tests/securityAudit.test.js && node tests/multiLeague.test.js"
   },
   "keywords": [
     "efootball",

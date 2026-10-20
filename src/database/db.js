@@ -30,6 +30,18 @@ function runMigrations(db) {
   } catch (e) {
     // Column already exists, ignore
   }
+
+  try {
+    db.exec("ALTER TABLE players ADD COLUMN league_id TEXT DEFAULT 'default'");
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    db.exec("ALTER TABLE fixtures ADD COLUMN league_id TEXT DEFAULT 'default'");
+  } catch (e) {
+    // Column already exists, ignore
+  }
 }
 
 function initDatabase(customPath = null) {

@@ -35,25 +35,28 @@ const CommandHandler = {
 
     // Rate limit check
     if (isRateLimited(senderId)) {
-      return null; // Silently drop spam queries
+      return null;
     }
 
-    // Group Lock Check
-    const lockedGroupId = SettingsRepo.get('league_group_id');
+    // Determine League Scope: Each WhatsApp group gets its own isolated league!
+    const leagueId = (isGroup && groupId) ? groupId : 'default';
+
+    // Optional Group Lock Check (if admin wants bot restricted to only 1 group)
+    const lockedGroupId = SettingsRepo.get('league_group_id', null, leagueId);
     if (lockedGroupId && isGroup && groupId !== lockedGroupId) {
-      return null; // Ignore messages from non-registered groups
+      return null;
     }
 
     const isAdmin = AdminRepo.isAdmin(senderId);
-    const currentWeek = SettingsRepo.getInt('current_week', 1);
+    const currentWeek = SettingsRepo.getInt('current_week', 1, leagueId);
 
     try {
       switch (command) {
         // ================= PUBLIC COMMANDS =================
         case 'table':
         case 'standings': {
-          const standings = LeagueService.getStandings();
-          return MessageFormatter.formatTable(standings, currentWeek);
+          const standings = LeagueService.getStandings(leagueId);
+          return MessageFormatter.formatTable(standings, currentWeek, leagueId);
         }
 
         case 'fixtures': {
@@ -63,35 +66,35 @@ const CommandHandler = {
           }
 
           let fixtures;
-          let title = 'LEAGUE FIXTURES';
+          let title = null;
           if (weekFilter) {
-            fixtures = FixtureRepo.findByWeek(weekFilter);
+            fixtures = FixtureRepo.findByWeek(weekFilter, leagueId);
             title = `WEEK ${weekFilter} FIXTURES`;
           } else {
-            fixtures = FixtureRepo.getAll();
+            fixtures = FixtureRepo.getAll({}, leagueId);
           }
 
-          return MessageFormatter.formatFixtures(fixtures, title);
+          return MessageFormatter.formatFixtures(fixtures, title, leagueId);
         }
 
         case 'myfixtures': {
           let player = null;
           if (args.length > 0) {
             const queryName = args.join(' ');
-            player = PlayerRepo.findByNameOrFuzzy(queryName);
+            player = PlayerRepo.findByNameOrFuzzy(queryName, leagueId);
             if (!player) {
-              return `❌ Player '${queryName}' not found.`;
+              return `❌ Player '${queryName}' not found in this league.`;
             }
           } else if (senderId) {
-            player = PlayerRepo.findByWhatsappId(senderId);
+            player = PlayerRepo.findByWhatsappId(senderId, leagueId);
             if (!player) {
-              return `❌ Your WhatsApp account is not linked to any player.\nUse \`!claimplayer <YourName>\` or \`!myfixtures <YourName>\`.`;
+              return `❌ Your WhatsApp account is not linked to any player in this league.\nUse \`!claimplayer <YourName>\` or \`!myfixtures <YourName>\`.`;
             }
           } else {
             return `Usage: \`!myfixtures <PlayerName>\``;
           }
 
-          const fixtures = FixtureRepo.findByPlayer(player.id);
+          const fixtures = FixtureRepo.findByPlayer(player.id, false, leagueId);
           return MessageFormatter.formatMyFixtures(player.name, fixtures);
         }
 
@@ -134,6 +137,7 @@ const CommandHandler = {
             scoreHome,
             scoreAway,
             senderId,
+            leagueId,
           });
 
           return MessageFormatter.formatResultSaved(updated);
@@ -142,13 +146,13 @@ const CommandHandler = {
         case 'claimplayer': {
           if (args.length === 0) return 'Usage: `!claimplayer <YourRegisteredName>`';
           const targetName = args.join(' ');
-          const player = PlayerRepo.findByNameOrFuzzy(targetName);
-          if (!player) return `❌ Player '${targetName}' not found in the league.`;
+          const player = PlayerRepo.findByNameOrFuzzy(targetName, leagueId);
+          if (!player) return `❌ Player '${targetName}' not found in this league.`;
           if (player.whatsapp_id && player.whatsapp_id !== senderId) {
             return `❌ Player '${player.name}' is already linked to another WhatsApp account. Ask an admin to re-link.`;
           }
           PlayerRepo.updateWhatsappId(player.id, senderId);
-          return `✅ Successfully linked your WhatsApp account to player *${player.name}*. You can now submit results for your matches!`;
+          return `✅ Successfully linked your WhatsApp account to player *${player.name}*. You can now submit results for your matches in this group!`;
         }
 
         case 'claimadmin': {
@@ -174,8 +178,8 @@ const CommandHandler = {
 
           const name = args[0];
           const phone = args[1] || null;
-          const player = LeagueService.addPlayer(name, phone);
-          return `✅ Player *${player.name}* added to the league.`;
+          const player = LeagueService.addPlayer(name, phone, leagueId);
+          return `✅ Player *${player.name}* added to this league.`;
         }
 
         case 'addlateplayer': {
@@ -184,7 +188,7 @@ const CommandHandler = {
 
           const name = args[0];
           const phone = args[1] || null;
-          const result = LeagueService.addLatePlayer(name, phone);
+          const result = LeagueService.addLatePlayer(name, phone, leagueId);
           return MessageFormatter.formatLatePlayerAdded(result);
         }
 
@@ -195,8 +199,8 @@ const CommandHandler = {
             rounds = Math.max(1, parseInt(args[0], 10));
           }
 
-          const res = LeagueService.generateFixtures(rounds);
-          return `✅ *Fixtures Generated Successfully!*\n\n` +
+          const res = LeagueService.generateFixtures(rounds, leagueId);
+          return `✅ *Fixtures Generated Successfully for this League!*\n\n` +
                  `• Total Fixtures: ${res.totalFixtures}\n` +
                  `• Total Weeks: ${res.totalWeeks}\n` +
                  `• Rounds: ${res.rounds} (${res.rounds === 2 ? 'Home & Away' : 'Single'})\n\n` +
@@ -209,8 +213,8 @@ const CommandHandler = {
             return 'Usage: `!setdeadline <days>` (e.g. `!setdeadline 3`)';
           }
           const days = parseInt(args[0], 10);
-          DeadlineService.setDeadlineDays(days);
-          return `✅ Global match deadline updated to *${days} days*.`;
+          SettingsRepo.set('deadline_days', String(days), leagueId);
+          return `✅ Match deadline for this league updated to *${days} days*.`;
         }
 
         case 'extenddeadline': {
@@ -236,6 +240,7 @@ const CommandHandler = {
             fixtureId: fId,
             winnerName: winner,
             senderId,
+            leagueId,
           });
           return `⚠️ *Match Forfeited!*\n\nMatch [#${updated.id}] awarded as 3-0 walkover win to *${winner}*.\nUpdated table with \`!table\`.`;
         }
@@ -269,17 +274,43 @@ const CommandHandler = {
             return 'Usage: `!setweek <number>` (e.g. `!setweek 2`)';
           }
           const newWeek = parseInt(args[0], 10);
-          SettingsRepo.set('current_week', String(newWeek));
-          return `✅ Current league week set to *Week ${newWeek}*.`;
+          SettingsRepo.set('current_week', String(newWeek), leagueId);
+          return `✅ Current league week for this group set to *Week ${newWeek}*.`;
+        }
+
+        case 'setleaguename': {
+          if (!isAdmin) return '❌ Permission denied: Admin only command.';
+          if (args.length === 0) return 'Usage: `!setleaguename <League Name>`';
+          const newName = args.join(' ').trim();
+          SettingsRepo.set('league_name', newName, leagueId);
+          return `🏆 League name for this group updated to *${newName}*! View with \`!table\` or check the web dashboard.`;
         }
 
         case 'setgroup': {
           if (!isAdmin) return '❌ Permission denied: Admin only command.';
           if (!isGroup || !groupId) {
-            return '❌ This command must be executed inside the target WhatsApp group.';
+            return '❌ This command must be executed inside a WhatsApp group.';
           }
-          SettingsRepo.set('league_group_id', groupId);
-          return `✅ Bot successfully locked to this group (*${groupId}*). It will now ignore league commands from other groups.`;
+          SettingsRepo.set('league_group_id', groupId, leagueId);
+          return `✅ Bot successfully locked to this group (*${groupId}*). It will now ignore commands from other groups for this league.`;
+        }
+
+        case 'unbindgroup':
+        case 'resetgroup': {
+          if (!isAdmin) return '❌ Permission denied: Admin only command.';
+          SettingsRepo.delete('league_group_id', leagueId);
+          return `🔓 Bot successfully unlinked from group locking. It will now operate freely in any group where it is added.`;
+        }
+
+        case 'groupinfo': {
+          const boundId = SettingsRepo.get('league_group_id', null, leagueId);
+          const leagueName = SettingsRepo.get('league_name', 'eFootball League', leagueId);
+          return `ℹ️ *Group League Info:*\n\n` +
+                 `• Group / League ID: \`${leagueId}\`\n` +
+                 `• League Name: *${leagueName}*\n` +
+                 `• Mode: *Isolated Independent League*\n` +
+                 `• Active Week: Week ${currentWeek}\n` +
+                 `• Players in League: ${PlayerRepo.countActive(leagueId)}`;
         }
 
         case 'addadmin': {
@@ -308,47 +339,21 @@ const CommandHandler = {
           const pName = args[0];
           const rawPhone = args[1].replace(/[^0-9]/g, '');
           const jid = `${rawPhone}@c.us`;
-          const updated = LeagueService.linkPlayer({ name: pName, whatsappId: jid, senderId });
-          return `✅ Linked player *${updated.name}* to WhatsApp ID *${rawPhone}*.`;
+          const updated = LeagueService.linkPlayer({ name: pName, whatsappId: jid, senderId, leagueId });
+          return `✅ Linked player *${updated.name}* to WhatsApp ID *${rawPhone}* in this league.`;
         }
 
         case 'removeplayer': {
           if (!isAdmin) return '❌ Permission denied: Admin only command.';
           if (args.length === 0) return 'Usage: `!removeplayer <name>`';
           const name = args.join(' ');
-          PlayerRepo.deactivate(name);
-          return `⚠️ Player *${name}* deactivated from the league.`;
-        }
-
-        case 'setleaguename': {
-          if (!isAdmin) return '❌ Permission denied: Admin only command.';
-          if (args.length === 0) return 'Usage: `!setleaguename <League Name>`';
-          const newName = args.join(' ').trim();
-          SettingsRepo.set('league_name', newName);
-          return `🏆 League name updated to *${newName}*! View with \`!table\` or check the web dashboard.`;
-        }
-
-        case 'unbindgroup':
-        case 'resetgroup': {
-          if (!isAdmin) return '❌ Permission denied: Admin only command.';
-          SettingsRepo.delete('league_group_id');
-          return `🔓 Bot successfully unlinked from this group. You can now move the bot to another WhatsApp group and run \`!setgroup\`.`;
-        }
-
-        case 'groupinfo': {
-          const boundId = SettingsRepo.get('league_group_id');
-          const leagueName = SettingsRepo.get('league_name', 'eFootball League');
-          return `ℹ️ *League Group Info:*\n\n` +
-                 `• League Name: *${leagueName}*\n` +
-                 `• Current Chat ID: \`${groupId || senderId}\`\n` +
-                 `• Bound Group ID: ${boundId ? `\`${boundId}\`` : '_None (Free mode)_'}\n` +
-                 `• Status: ${boundId === groupId ? '✅ Locked to this group' : boundId ? '⚠️ Locked to another group' : '🔓 Unbound'}`;
+          PlayerRepo.deactivate(name, leagueId);
+          return `⚠️ Player *${name}* deactivated from this league.`;
         }
 
         // ================= ONGOING LEAGUE ONBOARDING COMMANDS =================
         case 'setbaseline': {
           if (!isAdmin) return '❌ Permission denied: Admin only command.';
-          // Format: !setbaseline <Name> <P> <W> <D> <L> <GF> <GA> [PTS]
           if (args.length < 7) {
             return 'Usage: `!setbaseline <Name> <P> <W> <D> <L> <GF> <GA> [PTS]`\n' +
                    'e.g. `!setbaseline Messi 4 3 1 0 10 3 10`';
@@ -364,8 +369,9 @@ const CommandHandler = {
             ga,
             points: pts !== undefined ? pts : null,
             senderId,
+            leagueId,
           });
-          return `✅ Baseline stats recorded for *${updated.name}* (P:${p} W:${w} D:${d} L:${l} GF:${gf} GA:${ga} PTS:${updated.baseline_points}).\nCheck with \`!table\`.`;
+          return `✅ Baseline stats recorded for *${updated.name}* in this league (P:${p} W:${w} D:${d} L:${l} GF:${gf} GA:${ga} PTS:${updated.baseline_points}).\nCheck with \`!table\`.`;
         }
 
         case 'importtable': {
@@ -393,17 +399,16 @@ const CommandHandler = {
                 ga,
                 points: pts !== undefined ? pts : null,
                 senderId,
+                leagueId,
               });
               count++;
             }
           }
-          return `✅ Successfully imported baseline standings for *${count} players* into the league!\nView table with \`!table\`.`;
+          return `✅ Successfully imported baseline standings for *${count} players* into this league!\nView table with \`!table\`.`;
         }
 
         case 'backfill': {
           if (!isAdmin) return '❌ Permission denied: Admin only command.';
-          // Format: !backfill <Week> <Home> <Score> <Away>
-          // e.g. !backfill 1 Messi 3-1 Ronaldo
           if (args.length < 4) {
             return 'Usage: `!backfill <Week> <Home> <Score> <Away>`\n' +
                    'e.g. `!backfill 1 Messi 3-1 Ronaldo`';
@@ -422,16 +427,16 @@ const CommandHandler = {
             scoreHome: score.home,
             scoreAway: score.away,
             senderId,
+            leagueId,
           });
 
-          return `✅ Historical Match Backfilled!\n\n` +
+          return `✅ Historical Match Backfilled for this League!\n\n` +
                  `*Week ${f.week}:* ${home} *${score.home} - ${score.away}* ${away}\n` +
                  `Standings updated. View with \`!table\`.`;
         }
 
         case 'importfixtures': {
           if (!isAdmin) return '❌ Permission denied: Admin only command.';
-          // Format: !importfixtures <Week>\nPlayerA vs PlayerB\nPlayerC vs PlayerD
           const lines = body.split(/\r?\n/);
           const firstLineTokens = Parser.tokenize(lines[0].trim());
           const targetWeek = firstLineTokens.length > 1 ? parseInt(firstLineTokens[1], 10) : currentWeek;
@@ -448,6 +453,7 @@ const CommandHandler = {
             week: targetWeek,
             lines: fixtureLines,
             senderId,
+            leagueId,
           });
 
           return `✅ *${created.length} Fixtures Imported for Week ${targetWeek}!*\nView with \`!fixtures ${targetWeek}\`.`;

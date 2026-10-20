@@ -1,5 +1,6 @@
 const http = require('http');
 const LeagueService = require('./services/leagueService');
+const PlayerRepo = require('./database/repositories/playerRepo');
 const FixtureRepo = require('./database/repositories/fixtureRepo');
 const SettingsRepo = require('./database/repositories/settingsRepo');
 
@@ -77,14 +78,28 @@ function startWebServer(port = process.env.PORT || 3000) {
       let currentWeek = 1;
       let leagueName = 'eFootball League';
 
+      const distinctLeagues = PlayerRepo.getDistinctLeagues();
+      const activeLeagueId = url.searchParams.get('league') || (distinctLeagues.length > 0 ? distinctLeagues[0] : 'default');
+
       try {
-        standings = LeagueService.getStandings();
-        fixtures = FixtureRepo.getAll({ limit: 12 });
-        currentWeek = SettingsRepo.getInt('current_week', 1);
-        leagueName = SettingsRepo.get('league_name', 'eFootball League');
+        standings = LeagueService.getStandings(activeLeagueId);
+        fixtures = FixtureRepo.getAll({ limit: 12 }, activeLeagueId);
+        currentWeek = SettingsRepo.getInt('current_week', 1, activeLeagueId);
+        leagueName = SettingsRepo.get('league_name', 'eFootball League', activeLeagueId);
       } catch (err) {
         // Fallback for fresh boot
       }
+
+      // League Tabs if multiple leagues exist
+      const leagueTabsHtml = distinctLeagues.length > 1 ? `
+        <div class="league-tabs">
+          ${distinctLeagues.map(lId => {
+            const name = SettingsRepo.get('league_name', lId === 'default' ? 'Main League' : `League (${lId.slice(0, 8)})`, lId);
+            const activeClass = lId === activeLeagueId ? 'active' : '';
+            return `<a href="/?league=${encodeURIComponent(lId)}" class="league-tab ${activeClass}">🏆 ${name}</a>`;
+          }).join('')}
+        </div>
+      ` : '';
 
       // Generate Standings Rows
       const standingsRowsHtml = standings.length > 0 ? standings.map((s, idx) => {
@@ -253,6 +268,41 @@ function startWebServer(port = process.env.PORT || 3000) {
       border: 1px solid var(--card-border);
       border-radius: 16px;
       backdrop-filter: blur(12px);
+    }
+
+    .league-tabs {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 4px 0;
+    }
+
+    .league-tab {
+      padding: 8px 14px;
+      border-radius: 12px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+    }
+
+    .league-tab:hover {
+      background: #182236;
+      color: var(--text-main);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .league-tab.active {
+      background: rgba(56, 189, 248, 0.12);
+      border-color: rgba(56, 189, 248, 0.4);
+      color: var(--accent-blue);
     }
 
     .brand {
@@ -606,6 +656,9 @@ function startWebServer(port = process.env.PORT || 3000) {
         }
       </div>
     </header>
+
+    <!-- Multi-League Switcher Tabs -->
+    ${leagueTabsHtml}
 
     <!-- QR Code / Connection Box -->
     ${qrCardHtml}

@@ -2,14 +2,17 @@ const { getDatabase } = require('../db');
 
 function normalizeId(id) {
   if (!id) return '';
-  return id.replace(/[^0-9]/g, '');
+  let digits = id.replace(/[^0-9]/g, '');
+  if (digits.startsWith('0') && digits.length === 11) {
+    digits = '234' + digits.slice(1);
+  }
+  return digits;
 }
 
 function sanitizeName(name) {
   if (!name || typeof name !== 'string') {
     throw new Error('Player name must be a valid non-empty string.');
   }
-  // Remove control characters, newlines, tabs, and excess whitespace
   const clean = name.replace(/[\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim();
   if (clean.length < 2) {
     throw new Error('Player name must be at least 2 characters long.');
@@ -21,16 +24,16 @@ function sanitizeName(name) {
 }
 
 const PlayerRepo = {
-  create(name, whatsappId = null, joinedWeek = 1) {
+  create(name, whatsappId = null, joinedWeek = 1, leagueId = 'default') {
     const cleanName = sanitizeName(name);
     const cleanId = whatsappId ? whatsappId.trim() : null;
     const db = getDatabase();
 
     const stmt = db.prepare(`
-      INSERT INTO players (name, whatsapp_id, joined_week, active)
-      VALUES (?, ?, ?, 1)
+      INSERT INTO players (name, whatsapp_id, joined_week, active, league_id)
+      VALUES (?, ?, ?, 1, ?)
     `);
-    const info = stmt.run(cleanName, cleanId, joinedWeek);
+    const info = stmt.run(cleanName, cleanId, joinedWeek, leagueId);
     return this.findById(info.lastInsertRowid);
   },
 
@@ -39,35 +42,39 @@ const PlayerRepo = {
     return db.prepare('SELECT * FROM players WHERE id = ?').get(id);
   },
 
-  findByName(name) {
+  findByName(name, leagueId = 'default') {
     if (!name) return null;
     const db = getDatabase();
     const clean = name.trim().toLowerCase();
-    return db.prepare('SELECT * FROM players WHERE LOWER(name) = ?').get(clean);
+    return db.prepare(`
+      SELECT * FROM players 
+      WHERE LOWER(name) = ? AND league_id = ?
+    `).get(clean, leagueId);
   },
 
-  findByWhatsappId(whatsappId) {
+  findByWhatsappId(whatsappId, leagueId = 'default') {
     if (!whatsappId) return null;
     const db = getDatabase();
     const norm = normalizeId(whatsappId);
     return db.prepare(`
       SELECT * FROM players 
-      WHERE whatsapp_id = ? 
-         OR REPLACE(REPLACE(whatsapp_id, '@c.us', ''), '@s.whatsapp.net', '') = ?
-    `).get(whatsappId, norm);
+      WHERE (whatsapp_id = ? 
+         OR REPLACE(REPLACE(whatsapp_id, '@c.us', ''), '@s.whatsapp.net', '') = ?)
+        AND league_id = ?
+    `).get(whatsappId, norm, leagueId);
   },
 
-  findByNameOrFuzzy(query) {
+  findByNameOrFuzzy(query, leagueId = 'default') {
     if (!query) return null;
-    const direct = this.findByName(query);
+    const direct = this.findByName(query, leagueId);
     if (direct) return direct;
 
     const db = getDatabase();
     const clean = query.trim().toLowerCase();
     const matches = db.prepare(`
       SELECT * FROM players 
-      WHERE LOWER(name) LIKE ? AND active = 1
-    `).all(`%${clean}%`);
+      WHERE LOWER(name) LIKE ? AND active = 1 AND league_id = ?
+    `).all(`%${clean}%`, leagueId);
 
     if (matches.length === 1) {
       return matches[0];
@@ -75,22 +82,25 @@ const PlayerRepo = {
     return null;
   },
 
-  getAllActive() {
+  getAllActive(leagueId = 'default') {
     const db = getDatabase();
-    return db.prepare('SELECT * FROM players WHERE active = 1 ORDER BY id ASC').all();
+    return db.prepare('SELECT * FROM players WHERE active = 1 AND league_id = ? ORDER BY id ASC').all(leagueId);
   },
 
-  getAll() {
+  getAll(leagueId = 'default') {
     const db = getDatabase();
-    return db.prepare('SELECT * FROM players ORDER BY id ASC').all();
+    return db.prepare('SELECT * FROM players WHERE league_id = ? ORDER BY id ASC').all(leagueId);
   },
 
-  deactivate(idOrName) {
+  deactivate(idOrName, leagueId = 'default') {
     const db = getDatabase();
     if (typeof idOrName === 'number') {
       return db.prepare('UPDATE players SET active = 0 WHERE id = ?').run(idOrName);
     }
-    return db.prepare('UPDATE players SET active = 0 WHERE LOWER(name) = ?').run(idOrName.trim().toLowerCase());
+    return db.prepare(`
+      UPDATE players SET active = 0 
+      WHERE LOWER(name) = ? AND league_id = ?
+    `).run(idOrName.trim().toLowerCase(), leagueId);
   },
 
   activatePlayer(id) {
@@ -118,9 +128,14 @@ const PlayerRepo = {
     `).run(played, won, drawn, lost, gf, ga, points, playerId);
   },
 
-  countActive() {
+  countActive(leagueId = 'default') {
     const db = getDatabase();
-    return db.prepare('SELECT COUNT(*) as count FROM players WHERE active = 1').get().count;
+    return db.prepare('SELECT COUNT(*) as count FROM players WHERE active = 1 AND league_id = ?').get(leagueId).count;
+  },
+
+  getDistinctLeagues() {
+    const db = getDatabase();
+    return db.prepare('SELECT DISTINCT league_id FROM players').all().map(r => r.league_id);
   }
 };
 

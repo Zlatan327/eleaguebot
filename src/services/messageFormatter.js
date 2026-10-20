@@ -15,10 +15,10 @@ const MessageFormatter = {
   /**
    * Formats the league table in a clean monospace block
    */
-  formatTable(standings, currentWeek) {
-    const leagueName = SettingsRepo.get('league_name', 'EFOOTBALL LEAGUE');
+  formatTable(standings, currentWeek, leagueId = 'default') {
+    const leagueName = SettingsRepo.get('league_name', 'EFOOTBALL LEAGUE', leagueId);
     if (!standings || standings.length === 0) {
-      return `📋 *${leagueName.toUpperCase()} TABLE*\n\n_No players registered in the league yet._\nUse \`!addplayer <name>\` to register players.`;
+      return `📋 *${leagueName.toUpperCase()} TABLE*\n\n_No players registered in this league yet._\nUse \`!addplayer <name>\` to register players.`;
     }
 
     let header = `🏆 *${leagueName.toUpperCase()} STANDINGS* (Week ${currentWeek})\n`;
@@ -48,8 +48,8 @@ const MessageFormatter = {
   /**
    * Formats a list of fixtures
    */
-  formatFixtures(fixtures, title = null) {
-    const leagueName = SettingsRepo.get('league_name', 'LEAGUE');
+  formatFixtures(fixtures, title = null, leagueId = 'default') {
+    const leagueName = SettingsRepo.get('league_name', 'LEAGUE', leagueId);
     const displayTitle = title || `${leagueName.toUpperCase()} FIXTURES`;
     if (!fixtures || fixtures.length === 0) {
       return `📅 *${displayTitle}*\n\n_No fixtures found._\nUse \`!generatefixtures\` to generate the league schedule.`;

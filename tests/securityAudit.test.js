@@ -152,7 +152,7 @@ async function runSecurityAudit() {
     groupId: 'authorized_group@g.us',
     isGroup: true,
   });
-  assert(authGroupMsg !== null && authGroupMsg.includes('EFOOTBALL LEAGUE STANDINGS'), 'Bot must answer in authorized group');
+  assert(authGroupMsg !== null && authGroupMsg.includes('EFOOTBALL LEAGUE'), 'Bot must answer in authorized group');
   console.log('  ✅ Group isolation and lockdown verified.');
 
   console.log('\n🎉 ALL SECURITY & EXPLOIT AUDIT TESTS PASSED WITH 100% SUCCESS!\n');

@@ -7,17 +7,15 @@ const FixtureGenerator = require('./fixtureGenerator');
 
 const LeagueService = {
   /**
-   * Dynamically calculates standings from player baselines PLUS played & forfeited fixtures.
-   * Deterministic, immune to race conditions, and handles standard football tie-breakers.
+   * Dynamically calculates standings for a specific league/group.
    */
-  getStandings() {
-    const players = PlayerRepo.getAllActive();
-    const fixtures = FixtureRepo.getAll();
-    const pointsWin = SettingsRepo.getInt('points_win', 3);
-    const pointsDraw = SettingsRepo.getInt('points_draw', 1);
-    const pointsLoss = SettingsRepo.getInt('points_loss', 0);
+  getStandings(leagueId = 'default') {
+    const players = PlayerRepo.getAllActive(leagueId);
+    const fixtures = FixtureRepo.getAll({}, leagueId);
+    const pointsWin = SettingsRepo.getInt('points_win', 3, leagueId);
+    const pointsDraw = SettingsRepo.getInt('points_draw', 1, leagueId);
+    const pointsLoss = SettingsRepo.getInt('points_loss', 0, leagueId);
 
-    // Initialize stats map seeded with baseline stats (for ongoing league entry)
     const tableMap = new Map();
     for (const p of players) {
       tableMap.set(p.id, {
@@ -32,11 +30,10 @@ const LeagueService = {
         goals_against: p.baseline_ga || 0,
         goal_diff: (p.baseline_gf || 0) - (p.baseline_ga || 0),
         points: p.baseline_points || 0,
-        h2h: {}, // [opponentId]: points against opponent
+        h2h: {},
       });
     }
 
-    // Process completed and forfeited fixtures
     for (const f of fixtures) {
       if (f.status !== 'played' && f.status !== 'forfeited') continue;
       if (f.score_home === null || f.score_away === null) continue;
@@ -44,7 +41,6 @@ const LeagueService = {
       const home = tableMap.get(f.home_player_id);
       const away = tableMap.get(f.away_player_id);
 
-      // If a player was deactivated, still compute if present
       if (!home || !away) continue;
 
       home.played += 1;
@@ -86,13 +82,6 @@ const LeagueService = {
       return entry;
     });
 
-    // Sort using standard league tiebreakers:
-    // 1. Points
-    // 2. Goal Difference
-    // 3. Goals For
-    // 4. Head-to-Head points
-    // 5. Total Wins
-    // 6. Name
     standings.sort((a, b) => {
       if (b.points !== a.points) return b.points - a.points;
       if (b.goal_diff !== a.goal_diff) return b.goal_diff - a.goal_diff;
@@ -112,7 +101,7 @@ const LeagueService = {
   /**
    * Records a match result safely with validation and anti-tampering guards.
    */
-  recordResult({ fixtureId, homeName, awayName, scoreHome, scoreAway, senderId }) {
+  recordResult({ fixtureId, homeName, awayName, scoreHome, scoreAway, senderId, leagueId = 'default' }) {
     if (isNaN(scoreHome) || isNaN(scoreAway) || scoreHome < 0 || scoreAway < 0 || scoreHome > 50 || scoreAway > 50) {
       throw new Error('Scores must be integers between 0 and 50 (e.g. 3-1).');
     }
@@ -125,18 +114,17 @@ const LeagueService = {
         throw new Error(`Fixture #${fixtureId} not found.`);
       }
     } else if (homeName && awayName) {
-      const home = PlayerRepo.findByNameOrFuzzy(homeName);
-      const away = PlayerRepo.findByNameOrFuzzy(awayName);
+      const home = PlayerRepo.findByNameOrFuzzy(homeName, leagueId);
+      const away = PlayerRepo.findByNameOrFuzzy(awayName, leagueId);
 
-      if (!home) throw new Error(`Player '${homeName}' not found.`);
-      if (!away) throw new Error(`Player '${awayName}' not found.`);
+      if (!home) throw new Error(`Player '${homeName}' not found in this league.`);
+      if (!away) throw new Error(`Player '${awayName}' not found in this league.`);
 
-      fixture = FixtureRepo.findPendingBetween(home.id, away.id);
+      fixture = FixtureRepo.findPendingBetween(home.id, away.id, leagueId);
       if (!fixture) {
         throw new Error(`No pending fixture found between ${home.name} and ${away.name}.`);
       }
 
-      // If user typed away first, normalize score to fixture orientation
       if (fixture.home_player_id === away.id && fixture.away_player_id === home.id) {
         const temp = scoreHome;
         scoreHome = scoreAway;
@@ -148,22 +136,20 @@ const LeagueService = {
 
     const isAdmin = AdminRepo.isAdmin(senderId);
 
-    // ANTI-EXPLOIT GUARD: If match is already played, prevent players from overwriting!
     if (fixture.status === 'played' || fixture.status === 'forfeited') {
       if (!isAdmin) {
         throw new Error(`Match [#${fixture.id}] has already been recorded (${fixture.home_name} ${fixture.score_home} - ${fixture.score_away} ${fixture.away_name}). Ask an admin to !editresult.`);
       }
     }
 
-    // Permission check
-    const policy = SettingsRepo.get('submission_policy', 'players_or_admin');
+    const policy = SettingsRepo.get('submission_policy', 'players_or_admin', leagueId);
 
     if (policy === 'admin_only' && !isAdmin) {
       throw new Error('Permission denied: Only league admins can record match results.');
     }
 
     if (policy === 'players_or_admin' && !isAdmin && senderId) {
-      const senderPlayer = PlayerRepo.findByWhatsappId(senderId);
+      const senderPlayer = PlayerRepo.findByWhatsappId(senderId, leagueId);
       const isParticipant = senderPlayer && 
         (senderPlayer.id === fixture.home_player_id || senderPlayer.id === fixture.away_player_id);
 
@@ -176,10 +162,7 @@ const LeagueService = {
     return FixtureRepo.findById(fixture.id);
   },
 
-  /**
-   * Forfeit a match as a 3-0 walkover win.
-   */
-  recordForfeit({ fixtureId, winnerName, senderId }) {
+  recordForfeit({ fixtureId, winnerName, senderId, leagueId = 'default' }) {
     const isAdmin = AdminRepo.isAdmin(senderId);
     if (!isAdmin) {
       throw new Error('Permission denied: Only admins can record forfeits.');
@@ -190,7 +173,7 @@ const LeagueService = {
       throw new Error(`Fixture #${fixtureId} not found.`);
     }
 
-    const winner = PlayerRepo.findByNameOrFuzzy(winnerName);
+    const winner = PlayerRepo.findByNameOrFuzzy(winnerName, leagueId);
     if (!winner) {
       throw new Error(`Player '${winnerName}' not found.`);
     }
@@ -212,9 +195,6 @@ const LeagueService = {
     return FixtureRepo.findById(fixture.id);
   },
 
-  /**
-   * Revert a previously played/forfeited match back to pending.
-   */
   revertResult(fixtureId, senderId) {
     const isAdmin = AdminRepo.isAdmin(senderId);
     if (!isAdmin) {
@@ -230,9 +210,6 @@ const LeagueService = {
     return FixtureRepo.findById(fixture.id);
   },
 
-  /**
-   * Edit a previously recorded result.
-   */
   editResult(fixtureId, scoreHome, scoreAway, senderId) {
     const isAdmin = AdminRepo.isAdmin(senderId);
     if (!isAdmin) {
@@ -252,40 +229,33 @@ const LeagueService = {
     return FixtureRepo.findById(fixture.id);
   },
 
-  /**
-   * Add a player before season kickoff.
-   */
-  addPlayer(name, whatsappId = null) {
-    const existing = PlayerRepo.findByName(name);
+  addPlayer(name, whatsappId = null, leagueId = 'default') {
+    const existing = PlayerRepo.findByName(name, leagueId);
     if (existing) {
       if (!existing.active) {
         PlayerRepo.activatePlayer(existing.id);
         return existing;
       }
-      throw new Error(`Player '${name}' already exists.`);
+      throw new Error(`Player '${name}' already exists in this league.`);
     }
-    return PlayerRepo.create(name, whatsappId, 1);
+    return PlayerRepo.create(name, whatsappId, 1, leagueId);
   },
 
-  /**
-   * Late joiner integration: adds player mid-season and slots remaining matches
-   * without modifying any existing results or scheduled matches.
-   */
-  addLatePlayer(name, whatsappId = null) {
-    const existing = PlayerRepo.findByName(name);
+  addLatePlayer(name, whatsappId = null, leagueId = 'default') {
+    const existing = PlayerRepo.findByName(name, leagueId);
     if (existing && existing.active) {
-      throw new Error(`Player '${name}' is already in the league.`);
+      throw new Error(`Player '${name}' is already in this league.`);
     }
 
-    const currentWeek = SettingsRepo.getInt('current_week', 1);
-    const deadlineDays = SettingsRepo.getInt('deadline_days', 3);
-    const maxWeek = FixtureRepo.getMaxWeek();
-    const existingPlayers = PlayerRepo.getAllActive();
+    const currentWeek = SettingsRepo.getInt('current_week', 1, leagueId);
+    const deadlineDays = SettingsRepo.getInt('deadline_days', 3, leagueId);
+    const maxWeek = FixtureRepo.getMaxWeek(leagueId);
+    const existingPlayers = PlayerRepo.getAllActive(leagueId);
 
-    const latePlayer = existing ? existing : PlayerRepo.create(name, whatsappId, currentWeek);
+    const latePlayer = existing ? existing : PlayerRepo.create(name, whatsappId, currentWeek, leagueId);
 
     let newFixtures = [];
-    if (FixtureRepo.hasFixtures()) {
+    if (FixtureRepo.hasFixtures(leagueId)) {
       const generated = FixtureGenerator.generateLateJoinerFixtures(
         latePlayer,
         existingPlayers,
@@ -294,7 +264,8 @@ const LeagueService = {
         deadlineDays
       );
       if (generated.length > 0) {
-        FixtureRepo.bulkCreate(generated);
+        generated.forEach(f => f.league_id = leagueId);
+        FixtureRepo.bulkCreate(generated, leagueId);
         newFixtures = generated;
       }
     }
@@ -306,53 +277,42 @@ const LeagueService = {
     };
   },
 
-  /**
-   * Generate initial round-robin fixtures.
-   */
-  generateFixtures(rounds = 1) {
-    const players = PlayerRepo.getAllActive();
+  generateFixtures(rounds = 1, leagueId = 'default') {
+    const players = PlayerRepo.getAllActive(leagueId);
     if (players.length < 2) {
-      throw new Error('At least 2 active players are required to generate fixtures.');
+      throw new Error('At least 2 active players are required to generate fixtures in this league.');
     }
 
-    const deadlineDays = SettingsRepo.getInt('deadline_days', 3);
+    const deadlineDays = SettingsRepo.getInt('deadline_days', 3, leagueId);
     const fixtures = FixtureGenerator.generateRoundRobin(players, rounds, deadlineDays);
+    fixtures.forEach(f => f.league_id = leagueId);
 
-    FixtureRepo.deleteAllFixtures();
-    FixtureRepo.bulkCreate(fixtures);
-    SettingsRepo.set('league_status', 'active');
-    SettingsRepo.set('current_week', '1');
+    FixtureRepo.deleteAllFixtures(leagueId);
+    FixtureRepo.bulkCreate(fixtures, leagueId);
+    SettingsRepo.set('league_status', 'active', leagueId);
+    SettingsRepo.set('current_week', '1', leagueId);
 
     return {
       totalFixtures: fixtures.length,
-      totalWeeks: FixtureRepo.getMaxWeek(),
+      totalWeeks: FixtureRepo.getMaxWeek(leagueId),
       rounds,
     };
   },
 
-  // =========================================================================
-  // ONGOING LEAGUE ONBOARDING & MIGRATION METHODS
-  // =========================================================================
-
-  /**
-   * Sets baseline statistics for an existing player (for leagues already underway).
-   */
-  setPlayerBaseline({ name, played, won, drawn, lost, gf, ga, points, senderId }) {
+  setPlayerBaseline({ name, played, won, drawn, lost, gf, ga, points, senderId, leagueId = 'default' }) {
     const isAdmin = AdminRepo.isAdmin(senderId);
     if (!isAdmin) {
       throw new Error('Permission denied: Only admins can set player baselines.');
     }
 
-    let player = PlayerRepo.findByNameOrFuzzy(name);
+    let player = PlayerRepo.findByNameOrFuzzy(name, leagueId);
     if (!player) {
-      // Auto-create player if not found
-      player = PlayerRepo.create(name, null, 1);
+      player = PlayerRepo.create(name, null, 1, leagueId);
     }
 
-    // Auto-calculate points if omitted
     const calculatedPoints = points !== undefined && points !== null
       ? points
-      : (won * SettingsRepo.getInt('points_win', 3) + drawn * SettingsRepo.getInt('points_draw', 1));
+      : (won * SettingsRepo.getInt('points_win', 3, leagueId) + drawn * SettingsRepo.getInt('points_draw', 1, leagueId));
 
     PlayerRepo.setBaseline(player.id, {
       played: parseInt(played, 10) || 0,
@@ -367,10 +327,7 @@ const LeagueService = {
     return PlayerRepo.findById(player.id);
   },
 
-  /**
-   * Backfills a historically played match from prior weeks into the database.
-   */
-  backfillMatch({ week, homeName, awayName, scoreHome, scoreAway, senderId }) {
+  backfillMatch({ week, homeName, awayName, scoreHome, scoreAway, senderId, leagueId = 'default' }) {
     const isAdmin = AdminRepo.isAdmin(senderId);
     if (!isAdmin) {
       throw new Error('Permission denied: Only admins can backfill historical matches.');
@@ -380,28 +337,26 @@ const LeagueService = {
       throw new Error('Scores must be integers between 0 and 50.');
     }
 
-    let home = PlayerRepo.findByNameOrFuzzy(homeName);
-    if (!home) home = PlayerRepo.create(homeName, null, 1);
+    let home = PlayerRepo.findByNameOrFuzzy(homeName, leagueId);
+    if (!home) home = PlayerRepo.create(homeName, null, 1, leagueId);
 
-    let away = PlayerRepo.findByNameOrFuzzy(awayName);
-    if (!away) away = PlayerRepo.create(awayName, null, 1);
+    let away = PlayerRepo.findByNameOrFuzzy(awayName, leagueId);
+    if (!away) away = PlayerRepo.create(awayName, null, 1, leagueId);
 
     const fixture = FixtureRepo.createBackfill(
       parseInt(week, 10) || 1,
       home.id,
       away.id,
       parseInt(scoreHome, 10),
-      parseInt(scoreAway, 10)
+      parseInt(scoreAway, 10),
+      null,
+      leagueId
     );
 
     return fixture;
   },
 
-  /**
-   * Imports a batch of scheduled fixtures for a given week.
-   * e.g. "Messi vs Ronaldo\nNeymar vs Mbappe"
-   */
-  importFixturesForWeek({ week, lines, senderId }) {
+  importFixturesForWeek({ week, lines, senderId, leagueId = 'default' }) {
     const isAdmin = AdminRepo.isAdmin(senderId);
     if (!isAdmin) {
       throw new Error('Permission denied: Only admins can import fixtures.');
@@ -412,7 +367,7 @@ const LeagueService = {
       throw new Error('Target week must be a positive integer.');
     }
 
-    const deadlineDays = SettingsRepo.getInt('deadline_days', 3);
+    const deadlineDays = SettingsRepo.getInt('deadline_days', 3, leagueId);
     const deadline = new Date();
     deadline.setDate(deadline.getDate() + deadlineDays);
 
@@ -427,31 +382,28 @@ const LeagueService = {
       const homeName = parts[0].trim();
       const awayName = parts[1].trim();
 
-      let home = PlayerRepo.findByNameOrFuzzy(homeName);
-      if (!home) home = PlayerRepo.create(homeName, null, 1);
+      let home = PlayerRepo.findByNameOrFuzzy(homeName, leagueId);
+      if (!home) home = PlayerRepo.create(homeName, null, 1, leagueId);
 
-      let away = PlayerRepo.findByNameOrFuzzy(awayName);
-      if (!away) away = PlayerRepo.create(awayName, null, 1);
+      let away = PlayerRepo.findByNameOrFuzzy(awayName, leagueId);
+      if (!away) away = PlayerRepo.create(awayName, null, 1, leagueId);
 
-      const f = FixtureRepo.create(targetWeek, home.id, away.id, deadline.toISOString());
+      const f = FixtureRepo.create(targetWeek, home.id, away.id, deadline.toISOString(), leagueId);
       imported.push(f);
     }
 
     return imported;
   },
 
-  /**
-   * Links a WhatsApp JID or phone number to a player name
-   */
-  linkPlayer({ name, whatsappId, senderId }) {
+  linkPlayer({ name, whatsappId, senderId, leagueId = 'default' }) {
     const isAdmin = AdminRepo.isAdmin(senderId);
     if (!isAdmin && senderId !== whatsappId) {
       throw new Error('Permission denied: Only admins can link other users.');
     }
 
-    const player = PlayerRepo.findByNameOrFuzzy(name);
+    const player = PlayerRepo.findByNameOrFuzzy(name, leagueId);
     if (!player) {
-      throw new Error(`Player '${name}' not found.`);
+      throw new Error(`Player '${name}' not found in this league.`);
     }
 
     PlayerRepo.updateWhatsappId(player.id, whatsappId);

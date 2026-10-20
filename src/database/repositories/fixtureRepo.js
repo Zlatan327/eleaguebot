@@ -1,38 +1,39 @@
 const { getDatabase } = require('../db');
 
 const FixtureRepo = {
-  create(week, homePlayerId, awayPlayerId, deadline) {
+  create(week, homePlayerId, awayPlayerId, deadline, leagueId = 'default') {
     const db = getDatabase();
     const stmt = db.prepare(`
-      INSERT INTO fixtures (week, home_player_id, away_player_id, deadline, status)
-      VALUES (?, ?, ?, ?, 'pending')
+      INSERT INTO fixtures (week, home_player_id, away_player_id, deadline, status, league_id)
+      VALUES (?, ?, ?, ?, 'pending', ?)
     `);
-    const info = stmt.run(week, homePlayerId, awayPlayerId, deadline);
+    const info = stmt.run(week, homePlayerId, awayPlayerId, deadline, leagueId);
     return this.findById(info.lastInsertRowid);
   },
 
-  createBackfill(week, homePlayerId, awayPlayerId, scoreHome, scoreAway, playedAt = null) {
+  createBackfill(week, homePlayerId, awayPlayerId, scoreHome, scoreAway, playedAt = null, leagueId = 'default') {
     const db = getDatabase();
     const deadline = playedAt || new Date().toISOString();
     const played = playedAt || new Date().toISOString();
     const stmt = db.prepare(`
-      INSERT INTO fixtures (week, home_player_id, away_player_id, score_home, score_away, status, deadline, played_at, is_backfill)
-      VALUES (?, ?, ?, ?, ?, 'played', ?, ?, 1)
+      INSERT INTO fixtures (week, home_player_id, away_player_id, score_home, score_away, status, deadline, played_at, is_backfill, league_id)
+      VALUES (?, ?, ?, ?, ?, 'played', ?, ?, 1, ?)
     `);
-    const info = stmt.run(week, homePlayerId, awayPlayerId, scoreHome, scoreAway, deadline, played);
+    const info = stmt.run(week, homePlayerId, awayPlayerId, scoreHome, scoreAway, deadline, played, leagueId);
     return this.findById(info.lastInsertRowid);
   },
 
-  bulkCreate(fixturesList) {
+  bulkCreate(fixturesList, leagueId = 'default') {
     const db = getDatabase();
     const stmt = db.prepare(`
-      INSERT INTO fixtures (week, home_player_id, away_player_id, deadline, status)
-      VALUES (?, ?, ?, ?, 'pending')
+      INSERT INTO fixtures (week, home_player_id, away_player_id, deadline, status, league_id)
+      VALUES (?, ?, ?, ?, 'pending', ?)
     `);
     const insertMany = db.transaction((list) => {
       const inserted = [];
       for (const f of list) {
-        const info = stmt.run(f.week, f.home_player_id, f.away_player_id, f.deadline);
+        const lid = f.league_id || leagueId;
+        const info = stmt.run(f.week, f.home_player_id, f.away_player_id, f.deadline, lid);
         inserted.push(info.lastInsertRowid);
       }
       return inserted;
@@ -55,7 +56,7 @@ const FixtureRepo = {
     `).get(id);
   },
 
-  findByWeek(week) {
+  findByWeek(week, leagueId = 'default') {
     const db = getDatabase();
     return db.prepare(`
       SELECT f.*, 
@@ -64,12 +65,12 @@ const FixtureRepo = {
       FROM fixtures f
       JOIN players hp ON f.home_player_id = hp.id
       JOIN players ap ON f.away_player_id = ap.id
-      WHERE f.week = ?
+      WHERE f.week = ? AND f.league_id = ?
       ORDER BY f.id ASC
-    `).all(week);
+    `).all(week, leagueId);
   },
 
-  findByPlayer(playerId, onlyPending = false) {
+  findByPlayer(playerId, onlyPending = false, leagueId = 'default') {
     const db = getDatabase();
     let sql = `
       SELECT f.*, 
@@ -79,15 +80,16 @@ const FixtureRepo = {
       JOIN players hp ON f.home_player_id = hp.id
       JOIN players ap ON f.away_player_id = ap.id
       WHERE (f.home_player_id = ? OR f.away_player_id = ?)
+        AND f.league_id = ?
     `;
     if (onlyPending) {
       sql += " AND f.status = 'pending'";
     }
     sql += ' ORDER BY f.week ASC, f.id ASC';
-    return db.prepare(sql).all(playerId, playerId);
+    return db.prepare(sql).all(playerId, playerId, leagueId);
   },
 
-  findPendingBetween(playerAId, playerBId) {
+  findPendingBetween(playerAId, playerBId, leagueId = 'default') {
     const db = getDatabase();
     return db.prepare(`
       SELECT f.*, 
@@ -99,9 +101,10 @@ const FixtureRepo = {
       WHERE ((f.home_player_id = ? AND f.away_player_id = ?)
          OR (f.home_player_id = ? AND f.away_player_id = ?))
         AND f.status = 'pending'
+        AND f.league_id = ?
       ORDER BY f.week ASC, f.id ASC
       LIMIT 1
-    `).get(playerAId, playerBId, playerBId, playerAId);
+    `).get(playerAId, playerBId, playerBId, playerAId, leagueId);
   },
 
   updateResult(id, scoreHome, scoreAway, status = 'played') {
@@ -127,7 +130,7 @@ const FixtureRepo = {
     return db.prepare('UPDATE fixtures SET deadline = ? WHERE id = ?').run(newDeadline, id);
   },
 
-  getAll(options = {}) {
+  getAll(options = {}, leagueId = 'default') {
     const db = getDatabase();
     let sql = `
       SELECT f.*, 
@@ -136,20 +139,17 @@ const FixtureRepo = {
       FROM fixtures f
       JOIN players hp ON f.home_player_id = hp.id
       JOIN players ap ON f.away_player_id = ap.id
+      WHERE f.league_id = ?
     `;
-    const conditions = [];
-    const params = [];
+    const params = [leagueId];
 
     if (options.status) {
-      conditions.push('f.status = ?');
+      sql += ' AND f.status = ?';
       params.push(options.status);
     }
     if (options.week) {
-      conditions.push('f.week = ?');
+      sql += ' AND f.week = ?';
       params.push(options.week);
-    }
-    if (conditions.length > 0) {
-      sql += ' WHERE ' + conditions.join(' AND ');
     }
     sql += ' ORDER BY f.week ASC, f.id ASC';
     if (options.limit) {
@@ -159,21 +159,21 @@ const FixtureRepo = {
     return db.prepare(sql).all(...params);
   },
 
-  getMaxWeek() {
+  getMaxWeek(leagueId = 'default') {
     const db = getDatabase();
-    const row = db.prepare('SELECT MAX(week) as max_week FROM fixtures').get();
+    const row = db.prepare('SELECT MAX(week) as max_week FROM fixtures WHERE league_id = ?').get(leagueId);
     return row && row.max_week ? row.max_week : 0;
   },
 
-  hasFixtures() {
+  hasFixtures(leagueId = 'default') {
     const db = getDatabase();
-    const row = db.prepare('SELECT COUNT(*) as count FROM fixtures').get();
+    const row = db.prepare('SELECT COUNT(*) as count FROM fixtures WHERE league_id = ?').get(leagueId);
     return row.count > 0;
   },
 
-  deleteAllFixtures() {
+  deleteAllFixtures(leagueId = 'default') {
     const db = getDatabase();
-    return db.prepare('DELETE FROM fixtures').run();
+    return db.prepare('DELETE FROM fixtures WHERE league_id = ?').run(leagueId);
   }
 };
 

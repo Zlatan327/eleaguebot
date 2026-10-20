@@ -3,7 +3,12 @@ const SettingsRepo = require('./settingsRepo');
 
 function normalizeId(id) {
   if (!id) return '';
-  return id.replace(/[^0-9]/g, '');
+  let digits = id.replace(/[^0-9]/g, '');
+  // Normalize 11-digit national Nigerian numbers (e.g. 08154396451 -> 2348154396451)
+  if (digits.startsWith('0') && digits.length === 11) {
+    digits = '234' + digits.slice(1);
+  }
+  return digits;
 }
 
 const AdminRepo = {

@@ -78,10 +78,16 @@ function initDatabase(customPath = null) {
 
   // Add initial admin if configured
   if (config.initialAdminPhone) {
-    const normalizedAdmin = config.initialAdminPhone.replace(/[^0-9]/g, '');
-    if (normalizedAdmin) {
-      const adminJid = normalizedAdmin.includes('@') ? normalizedAdmin : `${normalizedAdmin}@c.us`;
+    let clean = config.initialAdminPhone.replace(/[^0-9]/g, '');
+    if (clean) {
+      if (clean.startsWith('0') && clean.length === 11) {
+        clean = '234' + clean.slice(1);
+      }
+      const adminJid = clean.includes('@') ? clean : `${clean}@c.us`;
       db.prepare('INSERT OR IGNORE INTO admins (whatsapp_id, name) VALUES (?, ?)').run(adminJid, 'SuperAdmin');
+      // Also register raw form
+      const rawJid = `${config.initialAdminPhone.replace(/[^0-9]/g, '')}@c.us`;
+      db.prepare('INSERT OR IGNORE INTO admins (whatsapp_id, name) VALUES (?, ?)').run(rawJid, 'SuperAdmin');
     }
   }
 

@@ -5,7 +5,7 @@ const CommandHandler = require('../handlers/commandHandler');
 const VisionService = require('../services/visionService');
 const LeagueService = require('../services/leagueService');
 const MessageFormatter = require('../services/messageFormatter');
-const { setLatestQr, setBotReady } = require('../server');
+const { setLatestQr, setBotReady, setBotStatus } = require('../server');
 
 class WhatsAppClient {
   constructor() {
@@ -13,6 +13,10 @@ class WhatsAppClient {
       authStrategy: new LocalAuth({
         dataPath: config.sessionDir,
       }),
+      webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+      },
       puppeteer: {
         headless: true,
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
@@ -22,7 +26,6 @@ class WhatsAppClient {
           '--disable-dev-shm-usage',
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
-          '--no-zygote',
           '--disable-gpu',
         ],
       },
@@ -33,6 +36,11 @@ class WhatsAppClient {
   }
 
   setupListeners() {
+    this.client.on('loading_screen', (percent, message) => {
+      console.log(`⏳ Loading screen: ${percent}% - ${message}`);
+      setBotStatus(`Loading WhatsApp Web: ${percent}% (${message || 'initializing'})...`);
+    });
+
     this.client.on('qr', (qr) => {
       console.log('\n======================================================');
       console.log('⚡ WhatsApp Web QR Code generated. Scan with WhatsApp:');
@@ -43,10 +51,12 @@ class WhatsAppClient {
 
     this.client.on('authenticated', () => {
       console.log('✅ WhatsApp session authenticated successfully.');
+      setBotStatus('Session authenticated! Syncing chats...');
     });
 
     this.client.on('auth_failure', (msg) => {
       console.error('❌ WhatsApp authentication failure:', msg);
+      setBotStatus(`Authentication failure: ${msg}. Please refresh to rescan.`);
     });
 
     this.client.on('ready', () => {
@@ -64,7 +74,7 @@ class WhatsAppClient {
       this.isReady = false;
       setBotReady(false);
       console.warn('⚠️ WhatsApp client disconnected:', reason);
-      console.log('🔄 Attempting to reinitialize in 5 seconds...');
+      setBotStatus(`Disconnected: ${reason}. Reinitializing...`);
       setTimeout(() => {
         this.client.initialize();
       }, 5000);
@@ -80,10 +90,9 @@ class WhatsAppClient {
       const chat = await msg.getChat();
       const isGroup = chat.isGroup;
       const groupId = isGroup ? chat.id._serialized : null;
-      const senderId = msg.author || msg.from; // in groups, author contains participant JID
+      const senderId = msg.author || msg.from;
       const body = msg.body || '';
 
-      // Check if message is a media screenshot with caption or reply
       if (msg.hasMedia) {
         const caption = body.trim().toLowerCase();
         if (caption.startsWith('!result') || caption.startsWith('!scan') || caption.startsWith('/result')) {
@@ -143,7 +152,14 @@ class WhatsAppClient {
 
   async start() {
     console.log('Initializing WhatsApp Web client...');
-    await this.client.initialize();
+    setBotStatus('Navigating to WhatsApp Web in Chromium...');
+    try {
+      await this.client.initialize();
+    } catch (err) {
+      console.error('Failed to initialize WhatsApp client:', err);
+      setBotStatus(`Startup error: ${err.message}. Retrying...`);
+      setTimeout(() => this.start(), 8000);
+    }
   }
 
   async stop() {

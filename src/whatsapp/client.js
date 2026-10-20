@@ -5,7 +5,7 @@ const CommandHandler = require('../handlers/commandHandler');
 const VisionService = require('../services/visionService');
 const LeagueService = require('../services/leagueService');
 const MessageFormatter = require('../services/messageFormatter');
-const { setLatestQr, setBotAuthenticated, setBotReady, setBotStatus } = require('../server');
+const { setLatestQr, setLatestPairingCode, setBotAuthenticated, setBotReady, setBotStatus } = require('../server');
 
 class WhatsAppClient {
   constructor() {
@@ -59,6 +59,13 @@ class WhatsAppClient {
       console.log('======================================================\n');
       qrcode.generate(qr, { small: true });
       setLatestQr(qr);
+    });
+
+    this.client.on('code', (code) => {
+      console.log('\n======================================================');
+      console.log(`⚡ WhatsApp Pairing Code generated: ${code}`);
+      console.log('======================================================\n');
+      setLatestPairingCode(code);
     });
 
     this.client.on('authenticated', () => {
@@ -237,6 +244,28 @@ class WhatsAppClient {
       }
     } catch (err) {
       console.error('Error handling message:', err);
+    }
+  }
+
+  async requestPairingCode(phoneNumber) {
+    if (!this.client || !this.client.pupPage) {
+      throw new Error('WhatsApp Web is still loading in Chromium. Please wait a few seconds and try again.');
+    }
+    let digits = (phoneNumber || '').replace(/[^0-9]/g, '');
+    if (digits.startsWith('0') && digits.length === 11) {
+      digits = '234' + digits.slice(1);
+    }
+    console.log(`📱 Requesting WhatsApp pairing code for: ${digits}`);
+    setBotStatus(`Requesting pairing code for ${digits}...`);
+    try {
+      const code = await this.client.requestPairingCode(digits, true);
+      console.log(`✅ Pairing code received: ${code}`);
+      setLatestPairingCode(code);
+      return code;
+    } catch (err) {
+      console.error('Failed to get pairing code:', err);
+      setBotStatus(`Pairing code error: ${err.message}`);
+      throw err;
     }
   }
 

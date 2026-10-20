@@ -5,9 +5,20 @@ const FixtureRepo = require('./database/repositories/fixtureRepo');
 const SettingsRepo = require('./database/repositories/settingsRepo');
 
 let latestQrDataUrl = null;
+let latestPairingCode = null;
+let whatsAppClientInstance = null;
 let isBotAuthenticated = false;
 let isBotReady = false;
 let currentStatus = 'Initializing WhatsApp Web client in Chromium...';
+
+function setWhatsAppClient(client) {
+  whatsAppClientInstance = client;
+}
+
+function setLatestPairingCode(code) {
+  latestPairingCode = code;
+  currentStatus = `Pairing code generated: ${code}. Enter this code in WhatsApp on your phone.`;
+}
 
 function setLatestQr(qrString) {
   if (!qrString) {
@@ -22,6 +33,7 @@ function setBotAuthenticated(authenticated = true) {
   isBotAuthenticated = authenticated;
   if (authenticated) {
     latestQrDataUrl = null;
+    latestPairingCode = null;
     currentStatus = 'WhatsApp connected & authenticated! Synchronizing league data...';
   }
 }
@@ -31,6 +43,7 @@ function setBotReady(ready = true) {
   if (ready) {
     isBotAuthenticated = true;
     latestQrDataUrl = null;
+    latestPairingCode = null;
     currentStatus = 'Bot is online and actively managing league group chats.';
   }
 }
@@ -82,6 +95,50 @@ function startWebServer(port = process.env.PORT || 3000) {
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Failed to fetch standings' }));
+      }
+      return;
+    }
+
+    // 2b. Request WhatsApp Pairing Code without Camera
+    if (url.pathname === '/api/request-code') {
+      const handleRequest = async (phoneNumber) => {
+        try {
+          if (!whatsAppClientInstance) {
+            res.writeHead(503, { 'Content-Type': 'text/plain' });
+            res.end('WhatsApp client is initializing. Please wait a few seconds and refresh.');
+            return;
+          }
+          const code = await whatsAppClientInstance.requestPairingCode(phoneNumber);
+          setLatestPairingCode(code);
+          if (req.method === 'POST') {
+            res.writeHead(302, { Location: '/?code_requested=1' });
+            res.end();
+          } else {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, code }));
+          }
+        } catch (err) {
+          if (req.method === 'POST') {
+            res.writeHead(302, { Location: '/?error=' + encodeURIComponent(err.message) });
+            res.end();
+          } else {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: err.message }));
+          }
+        }
+      };
+
+      if (req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', async () => {
+          const params = new URLSearchParams(body);
+          const phone = params.get('phone') || process.env.INITIAL_ADMIN_PHONE || '2348154396451';
+          await handleRequest(phone);
+        });
+      } else {
+        const phone = url.searchParams.get('phone') || process.env.INITIAL_ADMIN_PHONE || '2348154396451';
+        handleRequest(phone);
       }
       return;
     }
@@ -188,6 +245,54 @@ function startWebServer(port = process.env.PORT || 3000) {
         <div class="empty-state">No scheduled fixtures yet. Run <code>!generatefixtures</code> in WhatsApp.</div>
       `;
 
+      // Normalize admin phone for pairing default
+      let rawPhone = process.env.INITIAL_ADMIN_PHONE || '08154396451';
+      let cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+      if (cleanPhone.startsWith('0') && cleanPhone.length === 11) {
+        cleanPhone = '234' + cleanPhone.slice(1);
+      }
+
+      const pairingCardHtml = (!isBotReady && !isBotAuthenticated) ? `
+        <div class="glass-card pairing-card">
+          <div class="pairing-header">
+            <div class="badge-icon">🔢</div>
+            <div>
+              <h3>Link with Phone Number (No Camera Needed)</h3>
+              <p>Camera overheated or unavailable? Generate an 8-character pairing code to link directly:</p>
+            </div>
+          </div>
+
+          ${latestPairingCode ? `
+            <div class="code-box">
+              <span class="code-eyebrow">YOUR WHATSAPP PAIRING CODE</span>
+              <div class="code-display">${latestPairingCode}</div>
+              <div class="code-guide">
+                <ol>
+                  <li>Open <strong>WhatsApp</strong> on your phone</li>
+                  <li>Tap <strong>⋮ (Menu)</strong> &gt; <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong></li>
+                  <li>Tap <strong>Link with phone number instead</strong> at the bottom of the scanner screen</li>
+                  <li>Enter the code: <strong>${latestPairingCode}</strong></li>
+                </ol>
+              </div>
+              <form action="/api/request-code" method="POST" style="margin-top:10px;">
+                <input type="hidden" name="phone" value="${cleanPhone}">
+                <button type="submit" class="btn-refresh-code">🔄 Request New Code</button>
+              </form>
+            </div>
+          ` : `
+            <form action="/api/request-code" method="POST" class="pairing-form">
+              <div class="input-group">
+                <label for="phone">Your WhatsApp Number (international format):</label>
+                <div class="input-row">
+                  <input type="text" id="phone" name="phone" value="${cleanPhone}" placeholder="e.g. 2348154396451" required class="phone-input" />
+                  <button type="submit" class="btn-pair">Get 8-Digit Code</button>
+                </div>
+              </div>
+            </form>
+          `}
+        </div>
+      ` : '';
+
       // QR Code / Connection Card
       let qrCardHtml = '';
       if (!isBotReady && !isBotAuthenticated && latestQrDataUrl) {
@@ -196,7 +301,7 @@ function startWebServer(port = process.env.PORT || 3000) {
             <div class="qr-header">
               <div class="badge-icon">📲</div>
               <div>
-                <h3>Link WhatsApp Account</h3>
+                <h3>Link via QR Code</h3>
                 <p>Open WhatsApp &gt; Linked Devices &gt; Link a Device and scan:</p>
               </div>
             </div>
@@ -702,6 +807,149 @@ function startWebServer(port = process.env.PORT || 3000) {
       font-size: 11px;
     }
 
+    /* Alternative Pairing Card */
+    .pairing-card {
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      background: linear-gradient(180deg, #111A2E 0%, #0D1524 100%);
+    }
+
+    .pairing-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .pairing-header h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #F8FAFC;
+    }
+
+    .pairing-header p {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .code-box {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 14px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .code-eyebrow {
+      font-size: 11px;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--accent-blue);
+      letter-spacing: 0.08em;
+      display: block;
+    }
+
+    .code-display {
+      font-family: var(--mono);
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      color: #38BDF8;
+      margin: 14px 0;
+      background: rgba(56, 189, 248, 0.12);
+      padding: 12px 24px;
+      border-radius: 12px;
+      display: inline-block;
+      border: 1px dashed rgba(56, 189, 248, 0.6);
+      user-select: all;
+    }
+
+    .code-guide {
+      text-align: left;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin: 12px 0 16px 0;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 14px 18px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .code-guide ol {
+      padding-left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .code-guide strong {
+      color: #F1F5F9;
+    }
+
+    .btn-refresh-code {
+      display: inline-block;
+      font-size: 12px;
+      color: var(--accent-blue);
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      padding: 7px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .pairing-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .input-group label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .phone-input {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: #F8FAFC;
+      font-family: var(--mono);
+      font-size: 14px;
+      outline: none;
+    }
+
+    .phone-input:focus {
+      border-color: var(--accent-blue);
+    }
+
+    .btn-pair {
+      background: #0284C7;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+      white-space: nowrap;
+    }
+
+    .btn-pair:hover {
+      background: #0369A1;
+    }
+
     .status-card h3 { font-size: 15px; font-weight: 700; color: #FBBF24; }
     .status-msg { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
 
@@ -792,6 +1040,9 @@ function startWebServer(port = process.env.PORT || 3000) {
 
     <!-- QR Code / Connection Box -->
     ${qrCardHtml}
+
+    <!-- Alternative: Link without Camera via 8-Digit Pairing Code -->
+    ${pairingCardHtml}
 
     <!-- Standings Table -->
     <section class="glass-card">
@@ -903,7 +1154,9 @@ function startWebServer(port = process.env.PORT || 3000) {
 
 module.exports = {
   startWebServer,
+  setWhatsAppClient,
   setLatestQr,
+  setLatestPairingCode,
   setBotAuthenticated,
   setBotReady,
   setBotStatus,

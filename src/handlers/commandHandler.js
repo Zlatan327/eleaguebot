@@ -167,6 +167,7 @@ const CommandHandler = {
         }
 
         case 'help':
+        case 'hlp':
         case 'rules':
         case 'commands': {
           return MessageFormatter.formatHelp(isAdmin);

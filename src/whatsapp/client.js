@@ -106,12 +106,14 @@ class WhatsAppClient {
             await msg.reply('🔍 *Analyzing match screenshot via Google AI Studio...*');
             try {
               const aiData = await VisionService.parseMatchScreenshot(media.data, media.mimetype);
+              const leagueId = (isGroup && groupId) ? groupId : 'default';
               const updated = LeagueService.recordResult({
                 homeName: aiData.home,
                 awayName: aiData.away,
                 scoreHome: aiData.home_score,
                 scoreAway: aiData.away_score,
                 senderId,
+                leagueId,
               });
 
               await msg.reply(

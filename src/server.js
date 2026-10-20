@@ -629,6 +629,35 @@ function startWebServer(port = process.env.PORT || 3000) {
       font-size: 13px;
     }
 
+    /* Commands Cheatsheet Grid */
+    .commands-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 10px;
+    }
+
+    .cmd-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 12px 14px;
+      background: #0B0F19;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+    }
+
+    .cmd-item code {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent-blue);
+      font-weight: 600;
+    }
+
+    .cmd-item span {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
     footer {
       text-align: center;
       font-size: 12px;
@@ -705,6 +734,43 @@ function startWebServer(port = process.env.PORT || 3000) {
       </div>
       <div class="fixtures-grid">
         ${fixturesHtml}
+      </div>
+    </section>
+
+    <!-- Quick Commands Guide for Group Members -->
+    <section class="glass-card">
+      <div class="card-header">
+        <h2 class="card-title">
+          <span>⚡</span>
+          <span>WhatsApp Group Commands</span>
+        </h2>
+        <span class="pill">Cheatsheet</span>
+      </div>
+      <div class="commands-grid">
+        <div class="cmd-item">
+          <code>!table</code>
+          <span>Display current league standings</span>
+        </div>
+        <div class="cmd-item">
+          <code>!fixtures</code>
+          <span>View upcoming &amp; past matches</span>
+        </div>
+        <div class="cmd-item">
+          <code>!myfixtures</code>
+          <span>View your personal matches &amp; deadlines</span>
+        </div>
+        <div class="cmd-item">
+          <code>!result PlayerA 3-1 PlayerB</code>
+          <span>Submit match score (or reply <code>3-1</code>)</span>
+        </div>
+        <div class="cmd-item">
+          <code>📸 Send Photo + !result</code>
+          <span>AI Vision automatically detects score</span>
+        </div>
+        <div class="cmd-item">
+          <code>!help</code>
+          <span>Display full guide in WhatsApp group</span>
+        </div>
       </div>
     </section>
 

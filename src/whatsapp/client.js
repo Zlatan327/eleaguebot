@@ -26,19 +26,10 @@ class WhatsAppClient {
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
           '--no-zygote',
-          '--single-process',
           '--disable-gpu',
-          '--disable-software-rasterizer',
           '--disable-extensions',
           '--hide-scrollbars',
-          '--disable-background-networking',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-translate',
-          '--metrics-recording-only',
           '--mute-audio',
-          '--disable-features=AudioServiceOutOfProcess,IsolateOrigins,site-per-process',
-          '--js-flags=--max-old-space-size=128',
         ],
       },
     });
@@ -122,8 +113,16 @@ class WhatsAppClient {
       }, 5000);
     });
 
-    // 1. Listen for incoming messages from other group members
+    // 1. Listen for incoming messages from group members
     this.client.on('message', async (msg) => {
+      const body = (msg.body || '').trim();
+      const hasMedia = Boolean(msg.hasMedia);
+
+      // Fast-filter: bot only processes messages addressed to it (! or /) or media submissions
+      if (!body.startsWith('!') && !body.startsWith('/') && !hasMedia) {
+        return; // Normal group conversation discarded immediately with ZERO memory overhead
+      }
+
       if (!this.isReady) {
         this.isReady = true;
         setBotReady(true);
@@ -135,7 +134,8 @@ class WhatsAppClient {
     this.client.on('message_create', async (msg) => {
       if (msg.fromMe) {
         const body = (msg.body || '').trim();
-        if (body.startsWith('!') || body.startsWith('/')) {
+        const hasMedia = Boolean(msg.hasMedia);
+        if (body.startsWith('!') || body.startsWith('/') || hasMedia) {
           if (!this.isReady) {
             this.isReady = true;
             setBotReady(true);
@@ -148,6 +148,14 @@ class WhatsAppClient {
 
   async handleIncomingMessage(msg) {
     try {
+      const body = (msg.body || '').trim();
+      const hasMedia = Boolean(msg.hasMedia);
+
+      // Guard check: only process bot commands or media
+      if (!body.startsWith('!') && !body.startsWith('/') && !hasMedia) {
+        return;
+      }
+
       const chat = await msg.getChat();
       const isGroup = chat.isGroup;
       const groupId = isGroup ? chat.id._serialized : null;
@@ -155,7 +163,6 @@ class WhatsAppClient {
       if (msg.fromMe && !msg.author) {
         senderId = this.client.info?.wid?._serialized || (config.initialAdminPhone ? `${config.initialAdminPhone}@c.us` : msg.from);
       }
-      const body = msg.body || '';
 
       if (msg.hasMedia) {
         const caption = body.trim().toLowerCase();

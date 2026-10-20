@@ -7,12 +7,14 @@ const LeagueService = require('../services/leagueService');
 const MessageFormatter = require('../services/messageFormatter');
 const { setLatestQr, setBotAuthenticated, setBotReady, setBotStatus } = require('../server');
 
+const MODERN_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
 class WhatsAppClient {
   constructor() {
     this.client = null;
     this.isReady = false;
     this.isAuthenticated = false;
-    this.initClient();
+    this.isInitializing = false;
   }
 
   initClient() {
@@ -23,6 +25,7 @@ class WhatsAppClient {
       webVersionCache: {
         type: 'none',
       },
+      userAgent: MODERN_USER_AGENT,
       puppeteer: {
         headless: true,
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
@@ -37,6 +40,10 @@ class WhatsAppClient {
           '--disable-extensions',
           '--hide-scrollbars',
           '--mute-audio',
+          `--user-agent=${MODERN_USER_AGENT}`,
+          '--disable-blink-features=AutomationControlled',
+          '--js-flags=--max-old-space-size=128',
+          '--renderer-process-limit=1',
           '--disable-background-networking',
           '--disable-background-timer-throttling',
           '--disable-backgrounding-occluded-windows',
@@ -64,7 +71,6 @@ class WhatsAppClient {
     this.client.on('loading_screen', (percent, message) => {
       console.log(`⏳ Loading screen: ${percent}% - ${message || ''}`);
       setBotStatus(`Loading WhatsApp Web: ${percent}% (${message || 'syncing'})...`);
-      // NOTE: Never set isReady here! loading_screen at 100% just means the login page is ready.
     });
 
     this.client.on('qr', (qr) => {
@@ -73,7 +79,6 @@ class WhatsAppClient {
       console.log('======================================================\n');
       qrcode.generate(qr, { small: true });
 
-      // Guarantee the bot is marked unauthenticated so frontend displays QR code
       this.isReady = false;
       this.isAuthenticated = false;
       setBotReady(false);
@@ -120,7 +125,6 @@ class WhatsAppClient {
       setLatestQr(null);
       setBotStatus(`Disconnected: ${reason}. Restarting cleanly...`);
 
-      // Destroy browser cleanly to prevent multiple Chromium processes and OOM crashes
       try {
         await this.client.destroy();
       } catch (e) {}
@@ -145,19 +149,31 @@ class WhatsAppClient {
 
   async handleIncomingMessage(msg) {
     try {
-      const rawBody = msg.body || '';
-      const body = rawBody.trim();
+      let body = (msg.body || '').trim();
       const hasMedia = Boolean(msg.hasMedia);
 
-      // Fast-filter: bot only processes messages addressed to it (! or /) or media submissions or score replies (e.g. "3-1")
+      // Support common commands even if user forgets the leading '!' or '/'
+      if (!body.startsWith('!') && !body.startsWith('/') && !hasMedia) {
+        const lower = body.toLowerCase();
+        if (lower === 'hlp' || lower === 'help' || lower === 'rules') {
+          body = '!help';
+        } else if (lower === 'table' || lower === 'standings') {
+          body = '!table';
+        } else if (lower === 'fixtures') {
+          body = '!fixtures';
+        } else if (lower === 'myfixtures') {
+          body = '!myfixtures';
+        }
+      }
+
       const isCmd = body.startsWith('!') || body.startsWith('/');
       const isScore = /^\d+\s*[-:]\s*\d+$/.test(body);
       if (!isCmd && !hasMedia && !isScore) {
         return;
       }
 
-      // Determine chat and destination
-      const destinationChatId = msg.fromMe ? msg.to : msg.from;
+      // Robust chat destination detection (works for both incoming & self-sent group messages)
+      const destinationChatId = (msg.id && msg.id.remote) ? msg.id.remote : (msg.fromMe ? msg.to : msg.from);
       if (!destinationChatId) return;
 
       const isGroup = destinationChatId.endsWith('@g.us');
@@ -170,7 +186,6 @@ class WhatsAppClient {
 
       console.log(`📩 [CMD] Received: "${body}" from: ${senderId} in: ${destinationChatId}`);
 
-      // If bot is receiving messages, it is definitely ready
       if (!this.isReady) {
         this.isReady = true;
         setBotReady(true);
@@ -236,11 +251,11 @@ class WhatsAppClient {
           await this.client.sendMessage(destinationChatId, response);
           console.log(`✅ [SENT] Successfully responded in ${destinationChatId}`);
         } catch (sendErr) {
-          console.error(`❌ [SEND_ERROR] client.sendMessage failed:`, sendErr.message);
+          console.error(`❌ [SEND_ERROR] client.sendMessage failed:`, sendErr?.message || sendErr);
           try {
             await msg.reply(response);
           } catch (replyErr) {
-            console.error(`❌ [FALLBACK_ERROR] msg.reply also failed:`, replyErr.message);
+            console.error(`❌ [FALLBACK_ERROR] msg.reply also failed:`, replyErr?.message || replyErr);
           }
         }
       }
@@ -250,6 +265,9 @@ class WhatsAppClient {
   }
 
   async start() {
+    if (this.isInitializing) return;
+    this.isInitializing = true;
+
     console.log('Initializing WhatsApp Web client...');
     setBotStatus('Navigating to WhatsApp Web in Chromium...');
     try {
@@ -258,7 +276,9 @@ class WhatsAppClient {
       }
       this.initClient();
       await this.client.initialize();
+      this.isInitializing = false;
     } catch (err) {
+      this.isInitializing = false;
       console.error('Failed to initialize WhatsApp client:', err);
       setBotStatus(`Startup error: ${err.message}. Retrying in 10s...`);
       setTimeout(() => this.start(), 10000);

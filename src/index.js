@@ -3,6 +3,15 @@ const WhatsAppClient = require('./whatsapp/client');
 const MockWhatsAppClient = require('./whatsapp/mockClient');
 const { startWebServer } = require('./server');
 
+// Global crash guards to prevent container restart loops
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ [UNCAUGHT_EXCEPTION_HANDLED]', err?.message || err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ [UNHANDLED_REJECTION_HANDLED]', reason?.message || reason);
+});
+
 async function main() {
   console.log('⚽ Starting eLeagueBot (eFootball League Manager)...');
 

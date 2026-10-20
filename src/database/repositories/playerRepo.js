@@ -2,7 +2,9 @@ const { getDatabase } = require('../db');
 
 function normalizeId(id) {
   if (!id) return '';
-  let digits = id.replace(/[^0-9]/g, '');
+  // Strip WhatsApp domain (@c.us, @s.whatsapp.net) and multi-device device indices (:1, :2)
+  const phonePart = String(id).split('@')[0].split(':')[0];
+  let digits = phonePart.replace(/[^0-9]/g, '');
   if (digits.startsWith('0') && digits.length === 11) {
     digits = '234' + digits.slice(1);
   }

@@ -9,13 +9,19 @@ const { setLatestQr, setBotAuthenticated, setBotReady, setBotStatus } = require(
 
 class WhatsAppClient {
   constructor() {
+    this.client = null;
+    this.isReady = false;
+    this.isAuthenticated = false;
+    this.initClient();
+  }
+
+  initClient() {
     this.client = new Client({
       authStrategy: new LocalAuth({
         dataPath: config.sessionDir,
       }),
       webVersionCache: {
-        type: 'local',
-        strict: false,
+        type: 'none',
       },
       puppeteer: {
         headless: true,
@@ -51,23 +57,14 @@ class WhatsAppClient {
       },
     });
 
-    this.isReady = false;
-    this.isAuthenticated = false;
     this.setupListeners();
   }
 
   setupListeners() {
     this.client.on('loading_screen', (percent, message) => {
-      console.log(`⏳ Loading screen: ${percent}% - ${message}`);
+      console.log(`⏳ Loading screen: ${percent}% - ${message || ''}`);
       setBotStatus(`Loading WhatsApp Web: ${percent}% (${message || 'syncing'})...`);
-      if (percent === 100) {
-        setTimeout(() => {
-          if (!this.isReady) {
-            this.isReady = true;
-            setBotReady(true);
-          }
-        }, 3000);
-      }
+      // NOTE: Never set isReady here! loading_screen at 100% just means the login page is ready.
     });
 
     this.client.on('qr', (qr) => {
@@ -75,6 +72,12 @@ class WhatsAppClient {
       console.log('⚡ WhatsApp Web QR Code generated. Scan with WhatsApp:');
       console.log('======================================================\n');
       qrcode.generate(qr, { small: true });
+
+      // Guarantee the bot is marked unauthenticated so frontend displays QR code
+      this.isReady = false;
+      this.isAuthenticated = false;
+      setBotReady(false);
+      setBotAuthenticated(false);
       setLatestQr(qr);
     });
 
@@ -82,35 +85,24 @@ class WhatsAppClient {
       console.log('✅ WhatsApp session authenticated successfully.');
       this.isAuthenticated = true;
       setBotAuthenticated(true);
-      setBotStatus('Session authenticated! Syncing chats...');
-
-      // State verification fallback
-      setTimeout(async () => {
-        try {
-          if (!this.isReady) {
-            const state = await this.client.getState();
-            console.log(`ℹ️ Client state check: ${state}`);
-            if (state === 'CONNECTED') {
-              console.log('🚀 Client is CONNECTED! Marking ready.');
-              this.isReady = true;
-              setBotReady(true);
-            }
-          }
-        } catch (e) {
-          // ignore if state check not yet available
-        }
-      }, 10000);
+      setBotStatus('Session authenticated! Syncing chats with WhatsApp...');
     });
 
     this.client.on('auth_failure', (msg) => {
       console.error('❌ WhatsApp authentication failure:', msg);
-      setBotStatus(`Authentication failure: ${msg}. Please refresh to rescan.`);
+      this.isReady = false;
+      this.isAuthenticated = false;
+      setBotReady(false);
+      setBotAuthenticated(false);
+      setLatestQr(null);
+      setBotStatus(`Authentication failure: ${msg}. Click reset or refresh.`);
     });
 
     this.client.on('ready', () => {
       this.isReady = true;
       this.isAuthenticated = true;
       setBotReady(true);
+      setBotAuthenticated(true);
       console.log('🚀 eLeagueBot is online and listening for WhatsApp group commands!');
       if (VisionService.isEnabled()) {
         console.log('👁️ Google AI Studio Vision is active (post-match screenshots supported).');
@@ -119,80 +111,83 @@ class WhatsAppClient {
       }
     });
 
-    this.client.on('disconnected', (reason) => {
+    this.client.on('disconnected', async (reason) => {
+      console.warn('⚠️ WhatsApp client disconnected:', reason);
       this.isReady = false;
       this.isAuthenticated = false;
       setBotReady(false);
-      console.warn('⚠️ WhatsApp client disconnected:', reason);
-      setBotStatus(`Disconnected: ${reason}. Reinitializing...`);
+      setBotAuthenticated(false);
+      setLatestQr(null);
+      setBotStatus(`Disconnected: ${reason}. Restarting cleanly...`);
+
+      // Destroy browser cleanly to prevent multiple Chromium processes and OOM crashes
+      try {
+        await this.client.destroy();
+      } catch (e) {}
+
       setTimeout(() => {
-        this.client.initialize();
+        this.start();
       }, 5000);
     });
 
     // 1. Listen for incoming messages from group members
     this.client.on('message', async (msg) => {
-      const body = (msg.body || '').trim();
-      const hasMedia = Boolean(msg.hasMedia);
-
-      // Fast-filter: bot only processes messages addressed to it (! or /) or media submissions
-      if (!body.startsWith('!') && !body.startsWith('/') && !hasMedia) {
-        return; // Normal group conversation discarded immediately with ZERO memory overhead
-      }
-
-      if (!this.isReady) {
-        this.isReady = true;
-        setBotReady(true);
-      }
       await this.handleIncomingMessage(msg);
     });
 
     // 2. Listen for messages sent from the bot's own linked phone (admin testing from own device)
     this.client.on('message_create', async (msg) => {
       if (msg.fromMe) {
-        const body = (msg.body || '').trim();
-        const hasMedia = Boolean(msg.hasMedia);
-        if (body.startsWith('!') || body.startsWith('/') || hasMedia) {
-          if (!this.isReady) {
-            this.isReady = true;
-            setBotReady(true);
-          }
-          await this.handleIncomingMessage(msg);
-        }
+        await this.handleIncomingMessage(msg);
       }
     });
   }
 
   async handleIncomingMessage(msg) {
     try {
-      const body = (msg.body || '').trim();
+      const rawBody = msg.body || '';
+      const body = rawBody.trim();
       const hasMedia = Boolean(msg.hasMedia);
 
-      // Guard check: only process bot commands or media
-      if (!body.startsWith('!') && !body.startsWith('/') && !hasMedia) {
+      // Fast-filter: bot only processes messages addressed to it (! or /) or media submissions or score replies (e.g. "3-1")
+      const isCmd = body.startsWith('!') || body.startsWith('/');
+      const isScore = /^\d+\s*[-:]\s*\d+$/.test(body);
+      if (!isCmd && !hasMedia && !isScore) {
         return;
       }
 
-      const chat = await msg.getChat();
-      const isGroup = chat.isGroup;
-      const groupId = isGroup ? chat.id._serialized : null;
+      // Determine chat and destination
+      const destinationChatId = msg.fromMe ? msg.to : msg.from;
+      if (!destinationChatId) return;
+
+      const isGroup = destinationChatId.endsWith('@g.us');
+      const groupId = isGroup ? destinationChatId : null;
+
       let senderId = msg.author || msg.from;
-      if (msg.fromMe && !msg.author) {
-        senderId = this.client.info?.wid?._serialized || (config.initialAdminPhone ? `${config.initialAdminPhone}@c.us` : msg.from);
+      if (msg.fromMe) {
+        senderId = this.client.info?.wid?._serialized || msg.from;
       }
 
-      if (msg.hasMedia) {
-        const caption = body.trim().toLowerCase();
+      console.log(`📩 [CMD] Received: "${body}" from: ${senderId} in: ${destinationChatId}`);
+
+      // If bot is receiving messages, it is definitely ready
+      if (!this.isReady) {
+        this.isReady = true;
+        setBotReady(true);
+      }
+
+      if (hasMedia) {
+        const caption = body.toLowerCase();
         if (caption.startsWith('!result') || caption.startsWith('!scan') || caption.startsWith('/result')) {
           if (!VisionService.isEnabled()) {
             const warnText = 'ℹ️ AI screenshot parsing is currently unconfigured. Please add `GEMINI_API_KEY` from Google AI Studio to `.env` or submit manually using `!result PlayerA 3-1 PlayerB`.';
-            try { await msg.reply(warnText); } catch (e) { if (chat) await chat.sendMessage(warnText); }
+            await this.client.sendMessage(destinationChatId, warnText);
             return;
           }
 
           const media = await msg.downloadMedia();
           if (media && media.mimetype && media.mimetype.startsWith('image/')) {
-            try { await msg.reply('🔍 *Analyzing match screenshot via Google AI Studio...*'); } catch (e) {}
+            try { await this.client.sendMessage(destinationChatId, '🔍 *Analyzing match screenshot via Google AI Studio...*'); } catch (e) {}
             try {
               const aiData = await VisionService.parseMatchScreenshot(media.data, media.mimetype);
               const leagueId = (isGroup && groupId) ? groupId : 'default';
@@ -208,19 +203,11 @@ class WhatsAppClient {
               const replyText = `📸 *Match Screenshot Recognized!*\n\n` +
                 `*Detected:* ${aiData.home} ${aiData.home_score} - ${aiData.away_score} ${aiData.away_name}\n\n` +
                 MessageFormatter.formatResultSaved(updated);
-              try {
-                await msg.reply(replyText);
-              } catch (e) {
-                if (chat) await chat.sendMessage(replyText);
-              }
+              await this.client.sendMessage(destinationChatId, replyText);
               return;
             } catch (err) {
               const errText = `⚠️ *Vision Error:* ${err.message}\n_You can submit the result manually:_ \`!result <Home> <Score> <Away>\``;
-              try {
-                await msg.reply(errText);
-              } catch (e) {
-                if (chat) await chat.sendMessage(errText);
-              }
+              await this.client.sendMessage(destinationChatId, errText);
               return;
             }
           }
@@ -244,11 +231,16 @@ class WhatsAppClient {
       });
 
       if (response) {
+        console.log(`📤 [REPLY] Sending response to ${destinationChatId}...`);
         try {
-          await msg.reply(response);
-        } catch (replyErr) {
-          if (chat) {
-            await chat.sendMessage(response);
+          await this.client.sendMessage(destinationChatId, response);
+          console.log(`✅ [SENT] Successfully responded in ${destinationChatId}`);
+        } catch (sendErr) {
+          console.error(`❌ [SEND_ERROR] client.sendMessage failed:`, sendErr.message);
+          try {
+            await msg.reply(response);
+          } catch (replyErr) {
+            console.error(`❌ [FALLBACK_ERROR] msg.reply also failed:`, replyErr.message);
           }
         }
       }
@@ -261,11 +253,15 @@ class WhatsAppClient {
     console.log('Initializing WhatsApp Web client...');
     setBotStatus('Navigating to WhatsApp Web in Chromium...');
     try {
+      if (this.client) {
+        try { await this.client.destroy(); } catch (e) {}
+      }
+      this.initClient();
       await this.client.initialize();
     } catch (err) {
       console.error('Failed to initialize WhatsApp client:', err);
-      setBotStatus(`Startup error: ${err.message}. Retrying...`);
-      setTimeout(() => this.start(), 8000);
+      setBotStatus(`Startup error: ${err.message}. Retrying in 10s...`);
+      setTimeout(() => this.start(), 10000);
     }
   }
 
@@ -277,7 +273,9 @@ class WhatsAppClient {
       setBotAuthenticated(false);
       setLatestQr(null);
       setBotStatus('Clearing session data and restarting client...');
-      await this.client.destroy();
+      if (this.client) {
+        await this.client.destroy();
+      }
       const fs = require('fs');
       if (fs.existsSync(config.sessionDir)) {
         fs.rmSync(config.sessionDir, { recursive: true, force: true });
@@ -292,7 +290,9 @@ class WhatsAppClient {
 
   async stop() {
     console.log('Shutting down WhatsApp Web client...');
-    await this.client.destroy();
+    if (this.client) {
+      await this.client.destroy();
+    }
   }
 }
 

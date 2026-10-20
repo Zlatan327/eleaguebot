@@ -18,7 +18,7 @@ async function main() {
     const mock = new MockWhatsAppClient();
     await mock.start();
   } else {
-    // Start Web Server for Render / UptimeRobot health-checks & browser QR / Pairing code display
+    // Start Web Server for Render / UptimeRobot health-checks & browser QR display
     const port = process.env.PORT || 3000;
     const { setWhatsAppClient } = require('./server');
     startWebServer(port);

@@ -18,22 +18,26 @@ const MessageFormatter = {
   formatTable(standings, currentWeek, leagueId = 'default') {
     const leagueName = SettingsRepo.get('league_name', 'EFOOTBALL LEAGUE', leagueId);
     if (!standings || standings.length === 0) {
-      return `📋 *${leagueName.toUpperCase()} TABLE*\n\n_No players registered in this league yet._\nUse \`!addplayer <name>\` to register players.`;
+      return `🏆 *${leagueName.toUpperCase()} STANDINGS*\n\n` +
+             `_No players registered in this league yet._\n` +
+             `👉 Use \`!addplayer <name>\` to register participants.`;
     }
 
     let header = `🏆 *${leagueName.toUpperCase()} STANDINGS* (Week ${currentWeek})\n`;
+    header += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
     header += '```\n';
-    header += '#  Player       P  W  D  L  GD PTS\n';
-    header += '──────────────────────────────────\n';
+    header += '#  PLAYER     P  W D L  GD PTS\n';
+    header += '──────────────────────────────\n';
 
     let rows = '';
     standings.forEach((entry, idx) => {
       const pos = pad(idx + 1, 2, 'right');
-      const name = pad(entry.name, 11, 'left');
+      const displayName = entry.name.length > 10 ? entry.name.slice(0, 9) + '…' : entry.name;
+      const name = pad(displayName, 10, 'left');
       const p = pad(entry.played, 2, 'right');
       const w = pad(entry.won, 2, 'right');
-      const d = pad(entry.drawn, 2, 'right');
-      const l = pad(entry.lost, 2, 'right');
+      const d = pad(entry.drawn, 1, 'right');
+      const l = pad(entry.lost, 1, 'right');
       const gdVal = entry.goal_diff > 0 ? `+${entry.goal_diff}` : `${entry.goal_diff}`;
       const gd = pad(gdVal, 3, 'right');
       const pts = pad(entry.points, 3, 'right');
@@ -41,7 +45,17 @@ const MessageFormatter = {
       rows += `${pos} ${name} ${p} ${w} ${d} ${l} ${gd} ${pts}\n`;
     });
 
-    const footer = '```\n_Tiebreakers: Pts > GD > GF > H2H > Wins_';
+    let footer = '──────────────────────────────\n';
+    footer += '```\n';
+
+    // Highlight leader if any matches played or points earned
+    if (standings.length > 0) {
+      const leader = standings[0];
+      const ptsLabel = leader.points === 1 ? '1 pt' : `${leader.points} pts`;
+      footer += `🥇 *Leader:* ${leader.name} (${ptsLabel})\n`;
+    }
+
+    footer += `💡 _Tiebreakers: PTS > GD > GF > H2H_`;
     return header + rows + footer;
   },
 
@@ -52,32 +66,35 @@ const MessageFormatter = {
     const leagueName = SettingsRepo.get('league_name', 'LEAGUE', leagueId);
     const displayTitle = title || `${leagueName.toUpperCase()} FIXTURES`;
     if (!fixtures || fixtures.length === 0) {
-      return `📅 *${displayTitle}*\n\n_No fixtures found._\nUse \`!generatefixtures\` to generate the league schedule.`;
+      return `📅 *${displayTitle}*\n\n` +
+             `_No fixtures found._\n` +
+             `👉 Use \`!generatefixtures\` to generate the league schedule.`;
     }
 
-    let out = `📅 *${displayTitle}*\n`;
-    out += '────────────────────────────\n';
+    let out = `⚽ *${displayTitle}*\n`;
+    out += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
 
     let currentWk = null;
     for (const f of fixtures) {
       if (f.week !== currentWk) {
         currentWk = f.week;
-        out += `\n*── WEEK ${currentWk} ──*\n`;
+        out += `\n🗓️ *WEEK ${currentWk}*\n`;
       }
 
-      const matchId = `[#${f.id}]`;
+      const matchId = `*[#${f.id}]*`;
       if (f.status === 'played') {
-        out += `${matchId} *${f.home_name}* ${f.score_home} - ${f.score_away} *${f.away_name}* ✅\n`;
+        out += `✅ ${matchId} *${f.home_name}*  ${f.score_home} ━ ${f.score_away}  *${f.away_name}*\n`;
       } else if (f.status === 'forfeited') {
-        out += `${matchId} *${f.home_name}* ${f.score_home} - ${f.score_away} *${f.away_name}* (Forfeit ❌)\n`;
+        out += `❌ ${matchId} *${f.home_name}*  ${f.score_home} ━ ${f.score_away}  *${f.away_name}* _(Forfeit)_\n`;
       } else {
         const deadlineText = DeadlineService.formatDeadline(f.deadline);
-        out += `${matchId} ${f.home_name} vs ${f.away_name}\n`;
-        out += `     ⏳ ${deadlineText}\n`;
+        out += `⏳ ${matchId} *${f.home_name}* vs *${f.away_name}*\n`;
+        out += `   └ ⏰ ${deadlineText}\n`;
       }
     }
 
-    out += '\n_Submit score: `!result <id> <home>-<away>` or `!result <Player1> 3-1 <Player2>`_';
+    out += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+    out += '📝 *Submit Result:* `!result <id> <score>` (e.g. `!result 1 3-1`)';
     return out;
   },
 
@@ -86,34 +103,44 @@ const MessageFormatter = {
    */
   formatMyFixtures(playerName, fixtures) {
     if (!fixtures || fixtures.length === 0) {
-      return `👤 *Fixtures for ${playerName}*\n\n_No matches found for ${playerName}._`;
+      return `👤 *FIXTURES • ${playerName.toUpperCase()}*\n\n_No matches found for ${playerName}._`;
     }
 
-    let out = `👤 *FIXTURES FOR ${playerName.toUpperCase()}*\n`;
-    out += '────────────────────────────\n';
+    let out = `👤 *FIXTURES • ${playerName.toUpperCase()}*\n`;
+    out += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
 
     const pending = fixtures.filter(f => f.status === 'pending');
     const completed = fixtures.filter(f => f.status !== 'pending');
 
     if (pending.length > 0) {
-      out += '\n*⏳ Upcoming Matches:*\n';
+      out += '\n⏳ *UPCOMING MATCHES*\n';
       for (const f of pending) {
         const deadlineText = DeadlineService.formatDeadline(f.deadline);
-        out += `• [#${f.id}] Week ${f.week}: ${f.home_name} vs ${f.away_name}\n`;
-        out += `   └ Deadline: ${deadlineText}\n`;
+        out += `▸ *[#${f.id}] Week ${f.week}* vs *${f.home_name === playerName ? f.away_name : f.home_name}*\n`;
+        out += `   └ ⏰ ${deadlineText}\n`;
       }
     } else {
       out += '\n_All scheduled matches have been completed!_\n';
     }
 
     if (completed.length > 0) {
-      out += '\n*✅ Completed Matches:*\n';
+      out += '\n✅ *COMPLETED MATCHES*\n';
       for (const f of completed) {
-        const statusBadge = f.status === 'forfeited' ? '(Forfeit)' : '';
-        out += `• [#${f.id}] Week ${f.week}: ${f.home_name} ${f.score_home} - ${f.score_away} ${f.away_name} ${statusBadge}\n`;
+        const isHome = f.home_name === playerName;
+        const opponent = isHome ? f.away_name : f.home_name;
+        const myScore = isHome ? f.score_home : f.score_away;
+        const oppScore = isHome ? f.score_away : f.score_home;
+        let outcome = 'Draw 🤝';
+        if (myScore > oppScore) outcome = 'Won 🏆';
+        else if (myScore < oppScore) outcome = 'Lost ❌';
+        if (f.status === 'forfeited') outcome += ' (Forfeit)';
+
+        out += `▸ *[#${f.id}] Week ${f.week}* vs *${opponent}* ➔ *${myScore} ━ ${oppScore}* (${outcome})\n`;
       }
     }
 
+    out += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+    out += '📝 *Submit Result:* `!result <id> <score>`';
     return out;
   },
 
@@ -121,62 +148,68 @@ const MessageFormatter = {
    * Formats result confirmation
    */
   formatResultSaved(fixture) {
-    return `✅ *Match Result Recorded!*\n\n` +
-           `*Match:* [#${fixture.id}] Week ${fixture.week}\n` +
-           `*Score:* ${fixture.home_name} *${fixture.score_home} - ${fixture.score_away}* ${fixture.away_name}\n` +
-           `*Status:* ${fixture.status.toUpperCase()}\n\n` +
-           `Check updated standings with \`!table\`.`;
+    return `🏟️ *MATCH RESULT RECORDED*\n` +
+           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+           `⚽ *Week ${fixture.week} • Match #${fixture.id}*\n\n` +
+           `🔴 *${fixture.home_name}*   ${fixture.score_home} ━ ${fixture.score_away}   *${fixture.away_name}* 🔵\n\n` +
+           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+           `📊 *Status:* Full Time (FT ✅)\n` +
+           `📈 Standings updated! Type \`!table\` to view.`;
   },
 
   /**
    * Formats late player addition summary
    */
   formatLatePlayerAdded(result) {
-    return `🎉 *Late Player Joined!*\n\n` +
-           `*Player:* ${result.player.name}\n` +
-           `*Joined In:* Week ${result.currentWeek}\n` +
-           `*New Fixtures Scheduled:* ${result.createdFixturesCount}\n\n` +
-           `_All prior results & existing matchups remain 100% intact._\n` +
-           `Check your new matchups with \`!myfixtures ${result.player.name}\`.`;
+    return `🌟 *NEW CONTENDER JOINED!*\n` +
+           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+           `👤 *Player:* *${result.player.name}*\n` +
+           `📅 *Joined In:* Week ${result.currentWeek}\n` +
+           `⚔️ *Fixtures Scheduled:* ${result.createdFixturesCount} matches\n\n` +
+           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+           `ℹ️ _All prior results & existing matchups remain 100% intact._\n` +
+           `👉 Check schedule: \`!myfixtures ${result.player.name}\``;
   },
 
   /**
    * Help manual
    */
   formatHelp(isAdmin = false) {
-    let help = `⚽ *eLeagueBot Command Guide*\n\n` +
-      `*Public Commands:*\n` +
-      `• \`!table\` or \`!standings\` - Show current league standings\n` +
-      `• \`!fixtures\` - List all upcoming and past fixtures\n` +
-      `• \`!fixtures <week>\` - View fixtures for a specific week (e.g. \`!fixtures 2\`)\n` +
-      `• \`!myfixtures [name]\` - View personal upcoming matches and deadlines\n` +
-      `• \`!result <id> <score>\` - Submit score by ID (e.g. \`!result 5 3-1\`)\n` +
-      `• \`!result <P1> <score> <P2>\` - Submit score by names (e.g. \`!result Messi 3-1 Ronaldo\`)\n` +
-      `• \`!rules\` or \`!help\` - Display this help guide\n`;
+    let help = `╔══════════════════════════════╗\n` +
+               `   ⚽ *eLeagueBot • Official Guide*\n` +
+               `╚══════════════════════════════╝\n\n` +
+               `🎮 *MATCHDAY COMMANDS*\n` +
+               `▸ \`!table\` ➔ View current league standings\n` +
+               `▸ \`!fixtures\` ➔ View all upcoming & completed matches\n` +
+               `▸ \`!fixtures <week>\` ➔ View matches for a specific week (e.g. \`!fixtures 2\`)\n` +
+               `▸ \`!myfixtures\` ➔ View your personal upcoming schedule & deadlines\n` +
+               `▸ \`!result <id> <score>\` ➔ Submit score (e.g. \`!result 1 3-1\`)\n` +
+               `▸ \`!result <P1> <score> <P2>\` ➔ Submit by name (\`!result Messi 3-1 Ronaldo\`)\n` +
+               `▸ \`!claimplayer <Name>\` ➔ Link your WhatsApp to your player name\n` +
+               `▸ \`!help\` or \`!hlp\` ➔ Display this command guide\n`;
 
     if (isAdmin) {
-      help += `\n*👑 Admin Commands:*\n` +
-        `• \`!addplayer <name> [@phone]\` - Register player before kickoff\n` +
-        `• \`!addlateplayer <name> [@phone]\` - Safely integrate mid-season player\n` +
-        `• \`!generatefixtures [rounds]\` - Generate round-robin schedule\n` +
-        `• \`!setdeadline <days>\` - Set default match deadline duration\n` +
-        `• \`!extenddeadline <id> <days>\` - Extend deadline for postponed fixture\n` +
-        `• \`!forfeit <id> <winner>\` - Record 3-0 walkover win\n` +
-        `• \`!editresult <id> <score>\` - Correct an entered score\n` +
-        `• \`!revertresult <id>\` - Revert a played match back to pending\n` +
-        `• \`!setweek <num>\` - Advance active league week\n` +
-        `• \`!setleaguename <name>\` - Customize league display name\n` +
-        `• \`!setgroup\` - Lock bot to current WhatsApp group\n` +
-        `• \`!unbindgroup\` - Unlock bot to switch to another group\n` +
-        `• \`!groupinfo\` - View current group binding status\n` +
-        `• \`!linkplayer <name> <phone>\` - Link WhatsApp number to player\n` +
-        `• \`!addadmin <phone>\` - Grant admin permissions\n` +
-        `• \`!removeplayer <name>\` - Deactivate a player\n\n` +
-        `*📥 Ongoing League Onboarding:*\n` +
-        `• \`!setbaseline <name> <P> <W> <D> <L> <GF> <GA> [PTS]\` - Import existing player stats\n` +
-        `• \`!importtable\` (multiline) - Bulk import entire existing table\n` +
-        `• \`!backfill <week> <P1> <score> <P2>\` - Backfill historical played match\n` +
-        `• \`!importfixtures <week>\` (multiline) - Import upcoming fixtures\n`;
+      help += `\n👑 *ADMIN CONTROLS*\n` +
+              `▸ \`!addplayer <Name> [@phone]\` ➔ Register player before kickoff\n` +
+              `▸ \`!generatefixtures [rounds]\` ➔ Generate 1 or 2 round schedule\n` +
+              `▸ \`!setweek <num>\` ➔ Advance current active week (e.g. \`!setweek 2\`)\n` +
+              `▸ \`!editresult <id> <score>\` ➔ Correct a recorded match score\n` +
+              `▸ \`!revertresult <id>\` ➔ Reset played match back to pending\n` +
+              `▸ \`!forfeit <id> <winner>\` ➔ Award a 3-0 walkover win\n` +
+              `▸ \`!setdeadline <days>\` ➔ Set default match deadline duration\n` +
+              `▸ \`!extenddeadline <id> <days>\` ➔ Extend deadline for a fixture\n` +
+              `▸ \`!addlateplayer <Name>\` ➔ Safely integrate a player mid-season\n` +
+              `▸ \`!setleaguename <Name>\` ➔ Customize league display name\n` +
+              `▸ \`!setgroup\` ➔ Lock bot to current WhatsApp group\n` +
+              `▸ \`!groupinfo\` ➔ View group binding & league stats\n` +
+              `▸ \`!linkplayer <Name> <phone>\` ➔ Link WhatsApp number to player\n` +
+              `▸ \`!addadmin <phone>\` ➔ Grant admin permissions\n` +
+              `▸ \`!removeplayer <Name>\` ➔ Deactivate a player\n\n` +
+              `📥 *ONGOING LEAGUE ONBOARDING*\n` +
+              `▸ \`!importtable\` (multiline) ➔ Bulk import current league standings\n` +
+              `▸ \`!setbaseline <name> <stats...>\` ➔ Set player baseline stats\n` +
+              `▸ \`!backfill <wk> <P1> 3-1 <P2>\` ➔ Record historical past match\n` +
+              `▸ \`!importfixtures <wk>\` (multiline) ➔ Import custom fixture list\n`;
     }
 
     return help;

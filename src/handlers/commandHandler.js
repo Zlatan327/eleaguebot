@@ -160,7 +160,7 @@ const CommandHandler = {
           const token = args[0];
           try {
             AdminRepo.claimAdmin(senderId, token, 'Verified Admin');
-            return `👑 Admin privileges successfully granted to your account!`;
+            return `👑 Admin privileges successfully granted to your account! Type \`!help\` to view admin commands.`;
           } catch (e) {
             return `❌ ${e.message}`;
           }
@@ -181,7 +181,7 @@ const CommandHandler = {
           const name = args[0];
           const phone = args[1] || null;
           const player = LeagueService.addPlayer(name, phone, leagueId);
-          return `✅ Player *${player.name}* added to this league.`;
+          return `✅ *Player Registered:* *${player.name}* added to this league.`;
         }
 
         case 'addlateplayer': {
@@ -202,11 +202,13 @@ const CommandHandler = {
           }
 
           const res = LeagueService.generateFixtures(rounds, leagueId);
-          return `✅ *Fixtures Generated Successfully for this League!*\n\n` +
-                 `• Total Fixtures: ${res.totalFixtures}\n` +
-                 `• Total Weeks: ${res.totalWeeks}\n` +
-                 `• Rounds: ${res.rounds} (${res.rounds === 2 ? 'Home & Away' : 'Single'})\n\n` +
-                 `View fixtures with \`!fixtures\`.`;
+          return `📅 *FIXTURES GENERATED*\n` +
+                 `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                 `• Total Fixtures: *${res.totalFixtures}*\n` +
+                 `• Total Weeks: *${res.totalWeeks}*\n` +
+                 `• Format: *${res.rounds === 2 ? 'Home & Away (2 Rounds)' : 'Single Round-Robin'}*\n\n` +
+                 `🚀 Week 1 is officially live!\n` +
+                 `👉 View matches with \`!fixtures 1\`.`;
         }
 
         case 'setdeadline': {
@@ -216,7 +218,7 @@ const CommandHandler = {
           }
           const days = parseInt(args[0], 10);
           SettingsRepo.set('deadline_days', String(days), leagueId);
-          return `✅ Match deadline for this league updated to *${days} days*.`;
+          return `⏰ Match deadline for this league updated to *${days} days*.`;
         }
 
         case 'extenddeadline': {
@@ -228,7 +230,7 @@ const CommandHandler = {
           const days = parseInt(args[1], 10);
           const updated = DeadlineService.extendFixtureDeadline(fId, days);
           const formatted = DeadlineService.formatDeadline(updated.deadline);
-          return `✅ Deadline for Match [#${updated.id}] (${updated.home_name} vs ${updated.away_name}) extended.\nNew Deadline: ${formatted}`;
+          return `⏰ Deadline for Match [#${updated.id}] (*${updated.home_name} vs ${updated.away_name}*) extended.\nNew Deadline: ${formatted}`;
         }
 
         case 'forfeit': {
@@ -244,7 +246,10 @@ const CommandHandler = {
             senderId,
             leagueId,
           });
-          return `⚠️ *Match Forfeited!*\n\nMatch [#${updated.id}] awarded as 3-0 walkover win to *${winner}*.\nUpdated table with \`!table\`.`;
+          return `⚠️ *MATCH FORFEITED*\n` +
+                 `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                 `Match [#${updated.id}] awarded as 3-0 walkover win to *${winner}*.\n` +
+                 `📊 Standings updated! Check \`!table\`.`;
         }
 
         case 'editresult': {
@@ -257,7 +262,11 @@ const CommandHandler = {
           if (!score) return `❌ Invalid score format '${args[1]}'. Use format: 3-1`;
 
           const updated = LeagueService.editResult(fId, score.home, score.away, senderId);
-          return `✏️ *Match Result Corrected!*\n\nMatch [#${updated.id}] score updated to ${updated.home_name} *${updated.score_home} - ${updated.score_away}* ${updated.away_name}.`;
+          return `✏️ *MATCH RESULT CORRECTED*\n` +
+                 `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                 `Match [#${updated.id}] score updated to:\n` +
+                 `*${updated.home_name}* ${updated.score_home} ━ ${updated.score_away} *${updated.away_name}*\n` +
+                 `📊 Standings recalculated! Check \`!table\`.`;
         }
 
         case 'revertresult': {
@@ -267,7 +276,7 @@ const CommandHandler = {
           }
           const fId = parseInt(args[0], 10);
           const updated = LeagueService.revertResult(fId, senderId);
-          return `🔄 Match [#${updated.id}] (${updated.home_name} vs ${updated.away_name}) has been reverted back to pending.`;
+          return `🔄 *MATCH REVERTED*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nMatch [#${updated.id}] (*${updated.home_name} vs ${updated.away_name}*) has been reverted back to pending.`;
         }
 
         case 'setweek': {
@@ -277,7 +286,10 @@ const CommandHandler = {
           }
           const newWeek = parseInt(args[0], 10);
           SettingsRepo.set('current_week', String(newWeek), leagueId);
-          return `✅ Current league week for this group set to *Week ${newWeek}*.`;
+          return `⏩ *LEAGUE ADVANCED TO WEEK ${newWeek}*\n` +
+                 `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                 `📅 Active matchday set to: *Week ${newWeek}*\n` +
+                 `👉 View this week's matches: \`!fixtures ${newWeek}\``;
         }
 
         case 'setleaguename': {
@@ -285,7 +297,10 @@ const CommandHandler = {
           if (args.length === 0) return 'Usage: `!setleaguename <League Name>`';
           const newName = args.join(' ').trim();
           SettingsRepo.set('league_name', newName, leagueId);
-          return `🏆 League name for this group updated to *${newName}*! View with \`!table\` or check the web dashboard.`;
+          return `🏆 *LEAGUE REBRANDED*\n` +
+                 `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                 `League name updated to: *${newName}*!\n` +
+                 `👉 Check standings: \`!table\``;
         }
 
         case 'setgroup': {

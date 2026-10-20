@@ -3,6 +3,7 @@ const LeagueService = require('./services/leagueService');
 const PlayerRepo = require('./database/repositories/playerRepo');
 const FixtureRepo = require('./database/repositories/fixtureRepo');
 const SettingsRepo = require('./database/repositories/settingsRepo');
+const { generateQrSvgDataUrl } = require('./utils/qrGenerator');
 
 let latestQrDataUrl = null;
 let whatsAppClientInstance = null;
@@ -19,7 +20,7 @@ function setLatestQr(qrString) {
     latestQrDataUrl = null;
     return;
   }
-  latestQrDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=10&data=${encodeURIComponent(qrString)}`;
+  latestQrDataUrl = generateQrSvgDataUrl(qrString);
   currentStatus = 'QR Code generated! Ready to scan with WhatsApp.';
 }
 
@@ -233,7 +234,7 @@ function startWebServer(port = process.env.PORT || 3000) {
               </div>
             </div>
             <div class="qr-img-wrapper">
-              <img src="${latestQrDataUrl}" alt="WhatsApp Web QR Code" width="280" height="280" />
+              <img id="qrImage" src="${latestQrDataUrl}" alt="WhatsApp Web QR Code" width="280" height="280" />
             </div>
             <div class="qr-footer">
               <span class="pulse-dot pulse-amber"></span> Scan with WhatsApp &bull; Auto-syncing
@@ -840,7 +841,9 @@ function startWebServer(port = process.env.PORT || 3000) {
     ${leagueTabsHtml}
 
     <!-- QR Code / Connection Box -->
-    ${qrCardHtml}
+    <div id="authContainer">
+      ${qrCardHtml}
+    </div>
 
     <!-- Standings Table -->
     <section class="glass-card">
@@ -933,29 +936,45 @@ function startWebServer(port = process.env.PORT || 3000) {
 
   <script>
     (function() {
-      // Live Status Poller (Quietly tracks connection state without disrupting user)
-      const initialReady = ${isBotReady};
-      const initialAuth = ${isBotAuthenticated};
+      let currentQrUrl = ${JSON.stringify(latestQrDataUrl)};
+      const initialReady = ${Boolean(isBotReady)};
+      const initialAuth = ${Boolean(isBotAuthenticated)};
 
+      // Fast, lightweight status poller (every 1.5s) to guarantee instant QR rendering
       setInterval(async () => {
         try {
           const res = await fetch('/api/status');
+          if (!res.ok) return;
           const data = await res.json();
 
-          // Update status message dynamically if present
+          // 1. If connection state changed (authenticated or online), reload immediately
+          if (data.isBotReady !== initialReady || data.isBotAuthenticated !== initialAuth) {
+            window.location.reload();
+            return;
+          }
+
+          // 2. If QR code arrived or refreshed:
+          if (data.latestQrDataUrl && data.latestQrDataUrl !== currentQrUrl) {
+            currentQrUrl = data.latestQrDataUrl;
+            const qrImg = document.getElementById('qrImage');
+            if (qrImg) {
+              qrImg.src = data.latestQrDataUrl;
+            } else {
+              // Page was in the initialization/spinner state: reload instantly to reveal the QR code!
+              window.location.reload();
+              return;
+            }
+          }
+
+          // 3. Update status message dynamically
           const statusMsgEl = document.querySelector('.status-msg');
           if (statusMsgEl && data.currentStatus) {
             statusMsgEl.textContent = data.currentStatus;
           }
-
-          // If session state changed (e.g. user linked device or authenticated), reload once to update dashboard
-          if (data.isBotReady !== initialReady || data.isBotAuthenticated !== initialAuth) {
-            window.location.reload();
-          }
         } catch (e) {
-          // ignore background network blip
+          // ignore transient background network blip
         }
-      }, 4000);
+      }, 1500);
     })();
   </script>
 </body>

@@ -1,6 +1,7 @@
 const { initDatabase } = require('./database/db');
 const WhatsAppClient = require('./whatsapp/client');
 const MockWhatsAppClient = require('./whatsapp/mockClient');
+const { startWebServer } = require('./server');
 
 async function main() {
   console.log('⚽ Starting eLeagueBot (eFootball League Manager)...');
@@ -17,6 +18,10 @@ async function main() {
     const mock = new MockWhatsAppClient();
     await mock.start();
   } else {
+    // Start Web Server for Render / UptimeRobot health-checks & browser QR display
+    const port = process.env.PORT || 3000;
+    startWebServer(port);
+
     console.log('📱 Starting in WhatsApp Web mode...');
     const bot = new WhatsAppClient();
     await bot.start();

@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: eleaguebot
+    env: docker
+    plan: free
+    dockerfilePath: Dockerfile
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DEFAULT_DEADLINE_DAYS
+        value: 3
+      - key: SUBMISSION_POLICY
+        value: players_or_admin
+      - key: GEMINI_API_KEY
+        sync: false # Set manually in Render dashboard
+      - key: INITIAL_ADMIN_PHONE
+        sync: false
+      - key: ADMIN_SETUP_TOKEN
+        sync: false

@@ -5,6 +5,7 @@ const CommandHandler = require('../handlers/commandHandler');
 const VisionService = require('../services/visionService');
 const LeagueService = require('../services/leagueService');
 const MessageFormatter = require('../services/messageFormatter');
+const { setLatestQr, setBotReady } = require('../server');
 
 class WhatsAppClient {
   constructor() {
@@ -36,6 +37,7 @@ class WhatsAppClient {
       console.log('⚡ WhatsApp Web QR Code generated. Scan with WhatsApp:');
       console.log('======================================================\n');
       qrcode.generate(qr, { small: true });
+      setLatestQr(qr);
     });
 
     this.client.on('authenticated', () => {
@@ -48,6 +50,7 @@ class WhatsAppClient {
 
     this.client.on('ready', () => {
       this.isReady = true;
+      setBotReady(true);
       console.log('🚀 eLeagueBot is online and listening for WhatsApp group commands!');
       if (VisionService.isEnabled()) {
         console.log('👁️ Google AI Studio Vision is active (post-match screenshots supported).');
@@ -58,6 +61,7 @@ class WhatsAppClient {
 
     this.client.on('disconnected', (reason) => {
       this.isReady = false;
+      setBotReady(false);
       console.warn('⚠️ WhatsApp client disconnected:', reason);
       console.log('🔄 Attempting to reinitialize in 5 seconds...');
       setTimeout(() => {
